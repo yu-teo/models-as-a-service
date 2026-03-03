@@ -23,7 +23,8 @@ import (
 // MaaSModelSpec defines the desired state of MaaSModel
 type MaaSModelSpec struct {
 	// ModelRef references the actual model endpoint
-	ModelRef ModelReference `json:"modelRef"`
+	ModelRef         ModelReference `json:"modelRef"`
+	EndpointOverride string         `json:"endpointOverride,omitempty"`
 }
 
 // ModelReference references a model endpoint
