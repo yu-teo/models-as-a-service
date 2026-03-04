@@ -143,7 +143,7 @@ ADVANCED OPTIONS (PR Testing):
 
   --maas-controller-image <image>
       Custom MaaS controller container image (PR testing)
-      Example: quay.io/maas/maas-controller:pr-42
+      Example: quay.io/opendatahub/maas-controller:pr-406
 
   --channel <channel>
       Operator channel override
@@ -482,7 +482,7 @@ main() {
     fi
 
     log_info "  Subscription controller ready."
-    log_info "  Create MaaSModel, MaaSAuthPolicy, and MaaSSubscription to enable per-model auth and rate limiting."
+    log_info "  Create MaaSModelRef, MaaSAuthPolicy, and MaaSSubscription to enable per-model auth and rate limiting."
 
     # Patch controller with correct audience for HyperShift/ROSA clusters.
     # The controller creates AuthPolicies with kubernetesTokenReview.audiences;
