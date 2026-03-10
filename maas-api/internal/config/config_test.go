@@ -457,7 +457,7 @@ func TestValidate(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.expectError)
 				}
-				if !containsSubstring(err.Error(), tt.expectError) {
+				if !contains(err.Error(), tt.expectError) {
 					t.Errorf("expected error containing %q, got %q", tt.expectError, err.Error())
 				}
 				return
@@ -523,19 +523,6 @@ func TestHandleDeprecatedFlags(t *testing.T) {
 			t.Errorf("expected Address ':8443', got %q", cfg.Address)
 		}
 	})
-}
-
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstring(s, substr)
-}
-
-func searchSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestConfig_Validate_APIKeyMaxExpirationDays(t *testing.T) {
