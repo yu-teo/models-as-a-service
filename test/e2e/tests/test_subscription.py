@@ -26,6 +26,12 @@ Environment variables (all optional, with defaults):
   - E2E_PREMIUM_MODEL_REF: Premium model ref for CRs (default: premium-simulated-simulated-premium)
   - E2E_UNCONFIGURED_MODEL_REF: Unconfigured model ref (default: e2e-unconfigured-facebook-opt-125m-simulated)
   - E2E_UNCONFIGURED_MODEL_PATH: Path to unconfigured model (default: /llm/e2e-unconfigured-facebook-opt-125m-simulated)
+  - E2E_DISTINCT_MODEL_REF: First distinct model ref for multi-model tests (default: e2e-distinct-simulated)
+  - E2E_DISTINCT_MODEL_PATH: Path to first distinct model (default: /llm/e2e-distinct-simulated)
+  - E2E_DISTINCT_MODEL_ID: Model ID served by first distinct model (default: test/e2e-distinct-model)
+  - E2E_DISTINCT_MODEL_2_REF: Second distinct model ref for multi-model tests (default: e2e-distinct-2-simulated)
+  - E2E_DISTINCT_MODEL_2_PATH: Path to second distinct model (default: /llm/e2e-distinct-2-simulated)
+  - E2E_DISTINCT_MODEL_2_ID: Model ID served by second distinct model (default: test/e2e-distinct-model-2)
   - E2E_SIMULATOR_SUBSCRIPTION: Free-tier subscription (default: simulator-subscription)
   - E2E_PREMIUM_SIMULATOR_SUBSCRIPTION: Premium-tier subscription (default: premium-simulator-subscription)
   - E2E_SIMULATOR_ACCESS_POLICY: Simulator auth policy name (default: simulator-access)
@@ -61,6 +67,12 @@ PREMIUM_MODEL_REF = os.environ.get("E2E_PREMIUM_MODEL_REF", "premium-simulated-s
 MODEL_NAMESPACE = os.environ.get("E2E_MODEL_NAMESPACE", "llm")
 UNCONFIGURED_MODEL_REF = os.environ.get("E2E_UNCONFIGURED_MODEL_REF", "e2e-unconfigured-facebook-opt-125m-simulated")
 UNCONFIGURED_MODEL_PATH = os.environ.get("E2E_UNCONFIGURED_MODEL_PATH", "/llm/e2e-unconfigured-facebook-opt-125m-simulated")
+DISTINCT_MODEL_REF = os.environ.get("E2E_DISTINCT_MODEL_REF", "e2e-distinct-simulated")
+DISTINCT_MODEL_PATH = os.environ.get("E2E_DISTINCT_MODEL_PATH", "/llm/e2e-distinct-simulated")
+DISTINCT_MODEL_ID = os.environ.get("E2E_DISTINCT_MODEL_ID", "test/e2e-distinct-model")
+DISTINCT_MODEL_2_REF = os.environ.get("E2E_DISTINCT_MODEL_2_REF", "e2e-distinct-2-simulated")
+DISTINCT_MODEL_2_PATH = os.environ.get("E2E_DISTINCT_MODEL_2_PATH", "/llm/e2e-distinct-2-simulated")
+DISTINCT_MODEL_2_ID = os.environ.get("E2E_DISTINCT_MODEL_2_ID", "test/e2e-distinct-model-2")
 SIMULATOR_SUBSCRIPTION = os.environ.get("E2E_SIMULATOR_SUBSCRIPTION", "simulator-subscription")
 PREMIUM_SIMULATOR_SUBSCRIPTION = os.environ.get(
     "E2E_PREMIUM_SIMULATOR_SUBSCRIPTION", "premium-simulator-subscription"
@@ -678,9 +690,9 @@ class TestSubscriptionEnforcement:
 
     def test_auth_pass_no_subscription_gets_403(self):
         """API key with auth pass but no matching subscription should get 403.
-        
+
         The AuthPolicy includes a subscription-error-check rule that calls
-        /v1/subscriptions/select. If no subscription matches the user's groups,
+        /internal/v1/subscriptions/select. If no subscription matches the user's groups,
         the request is denied with 403 "no matching subscription found for user".
         
         To test this, we temporarily add system:authenticated to the premium model's
@@ -734,6 +746,116 @@ class TestSubscriptionEnforcement:
         api_key = _get_default_api_key()
         r = _inference(api_key, extra_headers={"x-maas-subscription": SIMULATOR_SUBSCRIPTION})
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:200]}"
+
+    def test_rate_limit_exhaustion_gets_429(self):
+        """
+        Test that a user gets 429 when they actually exceed their token rate limit.
+
+        This test creates a dedicated subscription with a very low token limit,
+        sends enough requests to exhaust it, and verifies a 429 response.
+
+        Uses the unconfigured model to avoid interfering with other tests.
+        """
+        # Use unconfigured model to isolate this test
+        model_ref = UNCONFIGURED_MODEL_REF
+        model_path = UNCONFIGURED_MODEL_PATH
+
+        # Create unique subscription and auth policy names
+        auth_policy_name = "e2e-rate-limit-test-auth"
+        subscription_name = "e2e-rate-limit-test-subscription"
+
+        # Very low limit for fast test: 15 tokens/min with max_tokens=3 per request
+        # Expected behavior:
+        #   - Requests 1-5 succeed (use 15 tokens total)
+        #   - Request 6 gets 429 (would need 18 tokens total)
+        token_limit = 15
+        window = "1m"
+        max_tokens = 3  # Explicitly track tokens per request for clarity
+
+        try:
+            # 1. Create auth policy allowing system:authenticated
+            _create_test_auth_policy(
+                name=auth_policy_name,
+                model_refs=[model_ref],
+                groups=["system:authenticated"]
+            )
+            _wait_reconcile()
+
+            # 2. Create subscription with low token limit
+            _create_test_subscription(
+                name=subscription_name,
+                model_refs=[model_ref],
+                groups=["system:authenticated"],
+                token_limit=token_limit,
+                window=window
+            )
+            _wait_reconcile()
+
+            # 3. Get API key for testing
+            api_key = _get_default_api_key()
+
+            # 4. Send requests to exhaust the limit
+            # Calculate expected successful requests: token_limit / max_tokens = 15 / 3 = 5
+            expected_success = token_limit // max_tokens
+            # Send 2 extra requests to ensure we hit the limit
+            total_requests = expected_success + 2
+
+            rate_limited = False
+            success_count = 0
+
+            for i in range(total_requests):
+                r = _inference(api_key, path=model_path, subscription=subscription_name)
+                request_num = i + 1
+                log.info(f"Request {request_num}/{total_requests}: {r.status_code}")
+
+                if r.status_code == 200:
+                    success_count += 1
+                elif r.status_code == 429:
+                    rate_limited = True
+                    log.info(f"Rate limit exceeded after {success_count} successful requests "
+                            f"({success_count * max_tokens} tokens used)")
+
+                    # Verify we hit the limit at approximately the right point (±1 for rounding)
+                    assert abs(success_count - expected_success) <= 1, \
+                        f"Expected ~{expected_success} successful requests before 429, got {success_count}"
+
+                    # Verify it's a rate limit 429, not a subscription error
+                    response_text = r.text.lower() if r.text else ""
+                    # Rate limit 429s typically mention "rate", "limit", or "quota"
+                    # Subscription 429s mention "subscription" without "rate"
+                    is_rate_limit_error = any(keyword in response_text
+                                             for keyword in ["rate", "limit", "quota", "too many"])
+                    is_subscription_error = "subscription" in response_text and not is_rate_limit_error
+
+                    assert is_rate_limit_error or not is_subscription_error, \
+                        f"Expected rate limit 429, not subscription error. Response: {r.text[:500]}"
+
+                    # Check for Retry-After header (optional but good practice)
+                    retry_after = r.headers.get("Retry-After") or r.headers.get("retry-after")
+                    if retry_after:
+                        log.info(f"Retry-After header present: {retry_after}")
+
+                    break
+                else:
+                    # Unexpected status code
+                    raise AssertionError(f"Unexpected status {r.status_code} at request {request_num}: {r.text[:200]}")
+
+                # Brief pause to avoid overwhelming the system, but stay within the window
+                time.sleep(0.1)
+
+            assert rate_limited, \
+                f"Expected 429 after ~{expected_success} requests with {token_limit} tokens/{window} limit, " \
+                f"but got {success_count} successful requests without hitting limit"
+
+            # Note: Skipping rate limit reset test to keep test fast (<5s)
+            # Reset behavior is tested manually via scripts/test-rate-limit.sh
+
+        finally:
+            # Clean up in reverse order of creation
+            _delete_cr("maassubscription", subscription_name)
+            _delete_cr("maasauthpolicy", auth_policy_name)
+            _wait_reconcile()
+            log.info("Cleaned up rate limit test resources")
 
 
 class TestMultipleSubscriptionsPerModel:
@@ -1214,9 +1336,9 @@ class TestMaasSubscriptionNamespace:
             _wait_reconcile()
 
     def test_authpolicy_and_subscription_in_another_namespace(self):
-        """MaaSAuthPolicy and MaaSSubscription in any namespace should be reconciled
-        and should appear in the AuthPolicy and TRLP annotations (namespace scoping support)."""
-        ns = "e2e-other-ns"
+        """MaaSAuthPolicy and MaaSSubscription in another namespace should not be reconciled
+        and should not appear in the AuthPolicy and TRLP annotations for the model."""
+        ns = "e2e-unwatched-ns"
         subprocess.run(
             ["oc", "create", "namespace", ns],
             capture_output=True,
@@ -1227,7 +1349,7 @@ class TestMaasSubscriptionNamespace:
             _apply_cr({
                 "apiVersion": "maas.opendatahub.io/v1alpha1",
                 "kind": "MaaSAuthPolicy",
-                "metadata": {"name": "e2e-other-ns-auth", "namespace": ns},
+                "metadata": {"name": "e2e-unwatched-auth", "namespace": ns},
                 "spec": {
                     "modelRefs": [{"name": MODEL_REF, "namespace": MODEL_NAMESPACE}],
                     "subjects": {"groups": [{"name": "system:authenticated"}]},
@@ -1236,7 +1358,7 @@ class TestMaasSubscriptionNamespace:
             _apply_cr({
                 "apiVersion": "maas.opendatahub.io/v1alpha1",
                 "kind": "MaaSSubscription",
-                "metadata": {"name": "e2e-other-ns-sub", "namespace": ns},
+                "metadata": {"name": "e2e-unwatched-sub", "namespace": ns},
                 "spec": {
                     "owner": {"groups": [{"name": "system:authenticated"}]},
                     "modelRefs": [{"name": MODEL_REF, "namespace": MODEL_NAMESPACE, "tokenRateLimits": [{"limit": 1, "window": "1m"}]}],
@@ -1249,8 +1371,8 @@ class TestMaasSubscriptionNamespace:
             assert auth_annotations is not None, (
                 f"AuthPolicy {auth_name} not found"
             )
-            assert "e2e-other-ns-auth" in auth_annotations.get("maas.opendatahub.io/auth-policies", "").split(","), (
-                "MaaSAuthPolicy e2e-other-ns-auth not reconciled (namespace scoping should allow this)"
+            assert "e2e-unwatched-auth" not in auth_annotations.get("maas.opendatahub.io/auth-policies", "").split(","), (
+                "MaaSAuthPolicy e2e-unwatched-auth not reconciled (namespace scoping should not allow this)"
             )
 
             trlp_name = f"maas-trlp-{MODEL_REF}"
@@ -1258,12 +1380,12 @@ class TestMaasSubscriptionNamespace:
             assert trlp_annotations is not None, (
                 f"TRLP {trlp_name} not found"
             )
-            assert "e2e-other-ns-sub" in trlp_annotations.get("maas.opendatahub.io/subscriptions", "").split(","), (
-                "MaaSSubscription e2e-other-ns-sub not reconciled (namespace scoping should allow this)"
+            assert "e2e-unwatched-sub" not in trlp_annotations.get("maas.opendatahub.io/subscriptions", "").split(","), (
+                "MaaSSubscription e2e-unwatched-sub not reconciled (namespace scoping should not allow this)"
             )
         finally:
-            _delete_cr("maasauthpolicy", "e2e-other-ns-auth", namespace=ns)
-            _delete_cr("maassubscription", "e2e-other-ns-sub", namespace=ns)
+            _delete_cr("maasauthpolicy", "e2e-unwatched-auth", namespace=ns)
+            _delete_cr("maassubscription", "e2e-unwatched-sub", namespace=ns)
             _wait_reconcile()
             subprocess.run(
                 ["oc", "delete", "namespace", ns, "--ignore-not-found", "--timeout=30s"],
