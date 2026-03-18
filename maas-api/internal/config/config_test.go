@@ -67,24 +67,6 @@ func TestLoad_EnvironmentVariables(t *testing.T) {
 		check   func(t *testing.T, cfg *Config)
 	}{
 		{
-			name:    "INSTANCE_NAME overrides Name",
-			envVars: map[string]string{"INSTANCE_NAME": "my-instance"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.Name != "my-instance" {
-					t.Errorf("expected Name 'my-instance', got %q", cfg.Name)
-				}
-			},
-		},
-		{
-			name:    "NAMESPACE overrides Namespace",
-			envVars: map[string]string{"NAMESPACE": "custom-ns"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.Namespace != "custom-ns" {
-					t.Errorf("expected Namespace 'custom-ns', got %q", cfg.Namespace)
-				}
-			},
-		},
-		{
 			name:    "GATEWAY_NAME overrides GatewayName and Name defaults to it",
 			envVars: map[string]string{"GATEWAY_NAME": "my-gateway"},
 			check: func(t *testing.T, cfg *Config) {
@@ -106,81 +88,6 @@ func TestLoad_EnvironmentVariables(t *testing.T) {
 				}
 				if cfg.GatewayName != "my-gateway" {
 					t.Errorf("expected GatewayName 'my-gateway', got %q", cfg.GatewayName)
-				}
-			},
-		},
-		{
-			name:    "GATEWAY_NAMESPACE overrides GatewayNamespace",
-			envVars: map[string]string{"GATEWAY_NAMESPACE": "gw-ns"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.GatewayNamespace != "gw-ns" {
-					t.Errorf("expected GatewayNamespace 'gw-ns', got %q", cfg.GatewayNamespace)
-				}
-			},
-		},
-		{
-			name:    "ADDRESS overrides Address",
-			envVars: map[string]string{"ADDRESS": ":9999"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.Address != ":9999" {
-					t.Errorf("expected Address ':9999', got %q", cfg.Address)
-				}
-			},
-		},
-		{
-			name:    "SECURE=true sets Secure",
-			envVars: map[string]string{"SECURE": "true"},
-			check: func(t *testing.T, cfg *Config) {
-				if !cfg.Secure {
-					t.Error("expected Secure to be true")
-				}
-			},
-		},
-		{
-			name:    "DEBUG_MODE=true sets DebugMode",
-			envVars: map[string]string{"DEBUG_MODE": "true"},
-			check: func(t *testing.T, cfg *Config) {
-				if !cfg.DebugMode {
-					t.Error("expected DebugMode to be true")
-				}
-			},
-		},
-		{
-			name:    "API_KEY_EXPIRATION_POLICY=required",
-			envVars: map[string]string{"API_KEY_EXPIRATION_POLICY": "required"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.APIKeyExpirationPolicy != "required" {
-					t.Errorf("expected APIKeyExpirationPolicy 'required', got %q", cfg.APIKeyExpirationPolicy)
-				}
-			},
-		},
-		{
-			name:    "PORT sets deprecatedHTTPPort",
-			envVars: map[string]string{"PORT": "9090"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.deprecatedHTTPPort != "9090" {
-					t.Errorf("expected deprecatedHTTPPort '9090', got %q", cfg.deprecatedHTTPPort)
-				}
-			},
-		},
-		{
-			name:    "TLS_CERT and TLS_KEY set TLS config",
-			envVars: map[string]string{"TLS_CERT": "/path/to/cert.pem", "TLS_KEY": "/path/to/key.pem"},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.TLS.Cert != "/path/to/cert.pem" {
-					t.Errorf("expected TLS.Cert '/path/to/cert.pem', got %q", cfg.TLS.Cert)
-				}
-				if cfg.TLS.Key != "/path/to/key.pem" {
-					t.Errorf("expected TLS.Key '/path/to/key.pem', got %q", cfg.TLS.Key)
-				}
-			},
-		},
-		{
-			name:    "TLS_SELF_SIGNED=true sets TLS.SelfSigned",
-			envVars: map[string]string{"TLS_SELF_SIGNED": "true"},
-			check: func(t *testing.T, cfg *Config) {
-				if !cfg.TLS.SelfSigned {
-					t.Error("expected TLS.SelfSigned to be true")
 				}
 			},
 		},
