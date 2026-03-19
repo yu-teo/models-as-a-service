@@ -164,7 +164,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 		return
 	}
 
-	subs, err := h.selector.ListAccessible(userContext.Username, userContext.Groups)
+	accessible, err := h.selector.GetAllAccessible(userContext.Groups, userContext.Username)
 	if err != nil {
 		h.logger.Error("Failed to list subscriptions", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -173,6 +173,11 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 				"type":    "server_error",
 			}})
 		return
+	}
+
+	subs := make([]SubscriptionInfo, len(accessible))
+	for i, sub := range accessible {
+		subs[i] = ResponseToSubscriptionInfo(sub)
 	}
 
 	c.JSON(http.StatusOK, subs)

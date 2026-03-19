@@ -48,8 +48,6 @@ type subscription struct {
 	CostCenter     string
 	Labels         map[string]string
 	ModelRefNames  []string
-	DisplayName    string
-	Description    string
 }
 
 // GetAllAccessible returns all subscriptions the user has access to.
@@ -274,22 +272,6 @@ func sortSubscriptionsByPriority(subs []subscription) {
 	})
 }
 
-// ListAccessible returns all subscriptions the user has access to.
-func (s *Selector) ListAccessible(username string, groups []string) ([]SubscriptionInfo, error) {
-	subscriptions, err := s.loadSubscriptions()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load subscriptions: %w", err)
-	}
-
-	result := []SubscriptionInfo{}
-	for _, sub := range subscriptions {
-		if userHasAccess(&sub, username, groups) {
-			result = append(result, toSubscriptionInfo(&sub))
-		}
-	}
-	return result, nil
-}
-
 // ListAccessibleForModel returns subscriptions the user has access to
 // that include the specified model in their modelRefs.
 func (s *Selector) ListAccessibleForModel(username string, groups []string, modelID string) ([]SubscriptionInfo, error) {
@@ -310,6 +292,16 @@ func (s *Selector) ListAccessibleForModel(username string, groups []string, mode
 // toSubscriptionInfo converts internal subscription to a list response item.
 // Uses display-name annotation with fallback to description annotation, then name.
 func toSubscriptionInfo(sub *subscription) SubscriptionInfo {
+	return ResponseToSubscriptionInfo(&SelectResponse{
+		Name:        sub.Name,
+		DisplayName: sub.DisplayName,
+		Description: sub.Description,
+	})
+}
+
+// ResponseToSubscriptionInfo converts a SelectResponse to a SubscriptionInfo.
+// Uses DisplayName with fallback to Description, then Name.
+func ResponseToSubscriptionInfo(sub *SelectResponse) SubscriptionInfo {
 	desc := sub.DisplayName
 	if desc == "" {
 		desc = sub.Description
