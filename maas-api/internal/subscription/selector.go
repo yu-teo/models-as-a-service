@@ -38,6 +38,8 @@ func NewSelector(log *logger.Logger, lister Lister) *Selector {
 // subscription represents a parsed MaaSSubscription for selection.
 type subscription struct {
 	Name           string
+	DisplayName    string
+	Description    string
 	Groups         []string
 	Users          []string
 	Priority       int32
@@ -48,6 +50,32 @@ type subscription struct {
 	ModelRefNames  []string
 	DisplayName    string
 	Description    string
+}
+
+// GetAllAccessible returns all subscriptions the user has access to.
+func (s *Selector) GetAllAccessible(groups []string, username string) ([]*SelectResponse, error) {
+	if len(groups) == 0 && username == "" {
+		return nil, errors.New("either groups or username must be provided")
+	}
+
+	subscriptions, err := s.loadSubscriptions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load subscriptions: %w", err)
+	}
+
+	var accessible []*SelectResponse
+	for _, sub := range subscriptions {
+		if userHasAccess(&sub, username, groups) {
+			accessible = append(accessible, toResponse(&sub))
+		}
+	}
+
+	// Sort for deterministic ordering
+	sort.Slice(accessible, func(i, j int) bool {
+		return accessible[i].Name < accessible[j].Name
+	})
+
+	return accessible, nil
 }
 
 // Select implements the subscription selection logic.
@@ -299,6 +327,8 @@ func toSubscriptionInfo(sub *subscription) SubscriptionInfo {
 func toResponse(sub *subscription) *SelectResponse {
 	return &SelectResponse{
 		Name:           sub.Name,
+		DisplayName:    sub.DisplayName,
+		Description:    sub.Description,
 		OrganizationID: sub.OrganizationID,
 		CostCenter:     sub.CostCenter,
 		Labels:         sub.Labels,
