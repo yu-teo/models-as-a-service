@@ -48,7 +48,8 @@ func createTestSubscription(name string, groups []string, priority int32, orgID,
 						"name": "test-model",
 						"tokenRateLimits": []any{
 							map[string]any{
-								"limit": int64(1000),
+								"limit":  int64(1000),
+								"window": "1m",
 							},
 						},
 					},
@@ -281,7 +282,8 @@ func TestHandler_SelectSubscription_UserWithoutGroups(t *testing.T) {
 						"name": "test-model",
 						"tokenRateLimits": []any{
 							map[string]any{
-								"limit": int64(1000),
+								"limit":  int64(1000),
+								"window": "1m",
 							},
 						},
 					},

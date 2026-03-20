@@ -60,13 +60,13 @@ def _validate_subscription_info_schema(sub):
         assert isinstance(ref["name"], str), "model_ref name must be string"
 
     # Optional fields
-    if "display_name" in sub and sub["display_name"]:
+    if "display_name" in sub:
         assert isinstance(sub["display_name"], str), "display_name must be string"
-    if "organization_id" in sub and sub["organization_id"]:
+    if "organization_id" in sub:
         assert isinstance(sub["organization_id"], str), "organization_id must be string"
-    if "cost_center" in sub and sub["cost_center"]:
+    if "cost_center" in sub:
         assert isinstance(sub["cost_center"], str), "cost_center must be string"
-    if "labels" in sub and sub["labels"]:
+    if "labels" in sub:
         assert isinstance(sub["labels"], dict), "labels must be a dict"
 
 

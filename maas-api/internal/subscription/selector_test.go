@@ -44,7 +44,8 @@ func createSubscription(name string, groups []string, users []string, priority i
 				"name": "test-model",
 				"tokenRateLimits": []any{
 					map[string]any{
-						"limit": int64(1000),
+						"limit":  int64(1000),
+						"window": "1m",
 					},
 				},
 			},
