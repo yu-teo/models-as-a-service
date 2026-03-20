@@ -597,7 +597,7 @@ paths:
             tags:
                 - subscriptions
             summary: List subscriptions the user has access to for a specific model
-            description: Returns MaaSSubscription resources the user has access to that include the specified model in their modelRefs. Useful for populating a subscription dropdown when the user must specify X-MaaS-Subscription.
+            description: Returns MaaSSubscription resources the user has access to that include the specified model in their modelRefs. The model-id parameter must be the MaaSModelRef resource name (e.g. "facebook-opt-125m-simulated"), not the served model name (e.g. "facebook/opt-125m") or the route path. Useful for populating a subscription dropdown when the user must specify X-MaaS-Subscription.
             operationId: subscriptions#list_for_model
             parameters:
                 - in: path
@@ -605,7 +605,7 @@ paths:
                   schema:
                       type: string
                   required: true
-                  description: ID of the model to filter subscriptions by
+                  description: The MaaSModelRef resource name (e.g. "facebook-opt-125m-simulated"). This is the name of the MaaSModelRef, not the served model ID or the route path.
             responses:
                 "200":
                     description: OK response.
