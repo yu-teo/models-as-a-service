@@ -580,7 +580,7 @@ paths:
                             schema:
                                 type: array
                                 items:
-                                    $ref: '#/components/schemas/SubscriptionInfo'
+                                    $ref: '#/components/schemas/SubscriptionListItem'
                             example:
                                 - subscription_id_header: free-tier
                                   subscription_description: Free Tier
@@ -614,7 +614,7 @@ paths:
                             schema:
                                 type: array
                                 items:
-                                    $ref: '#/components/schemas/SubscriptionInfo'
+                                    $ref: '#/components/schemas/SubscriptionListItem'
                             example:
                                 - subscription_id_header: premium
                                   subscription_description: Premium Plan
@@ -836,7 +836,7 @@ components:
                 - message
 
         # Subscription info for list responses
-        SubscriptionInfo:
+        SubscriptionListItem:
             type: object
             properties:
                 subscription_id_header:
@@ -845,11 +845,82 @@ components:
                     example: premium
                 subscription_description:
                     type: string
-                    description: Human-readable description (from display-name or description annotation, falls back to name)
+                    description: Human-readable description (from description annotation, falls back to display-name, then name)
                     example: Premium Plan
+                display_name:
+                    type: string
+                    description: Display name from the openshift.io/display-name annotation
+                    example: Premium
+                priority:
+                    type: integer
+                    format: int32
+                    description: Subscription priority (higher = higher priority)
+                    example: 10
+                model_refs:
+                    type: array
+                    description: Model references with rate limits
+                    items:
+                        $ref: '#/components/schemas/ModelRefInfo'
+                organization_id:
+                    type: string
+                    description: Organization identifier for metering and billing
+                    example: premium-org
+                cost_center:
+                    type: string
+                    description: Cost center for usage attribution
+                    example: ai-team
+                labels:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Additional labels for tracking and metrics
+                    example:
+                        env: production
             required:
                 - subscription_id_header
                 - subscription_description
+                - priority
+                - model_refs
+
+        ModelRefInfo:
+            type: object
+            properties:
+                name:
+                    type: string
+                    description: Name of the MaaSModelRef
+                    example: free-model-ref
+                namespace:
+                    type: string
+                    description: Namespace where the MaaSModelRef lives
+                    example: llm
+                token_rate_limits:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            limit:
+                                type: integer
+                                format: int64
+                                description: Maximum number of tokens allowed
+                                example: 100
+                            window:
+                                type: string
+                                description: "Time window (e.g., 1m, 1h, 24h)"
+                                example: 1m
+                        required:
+                            - limit
+                            - window
+                billing_rate:
+                    type: object
+                    properties:
+                        per_token:
+                            type: string
+                            description: Cost per token
+                            example: "0.001"
+                    required:
+                        - per_token
+            required:
+                - name
 
         # API Key metadata
         ApiKey:

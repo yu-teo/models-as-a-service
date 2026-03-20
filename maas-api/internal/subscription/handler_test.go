@@ -661,10 +661,10 @@ func TestListSubscriptions_MultipleAccessible(t *testing.T) {
 	}
 
 	if desc, ok := found["free-sub"]; !ok || desc != "Free Tier" {
-		t.Errorf("expected free-sub with description 'Free Tier', got %q", desc)
+		t.Errorf("expected free-sub with description 'Free Tier' (fallback from display-name), got %q", desc)
 	}
-	if desc, ok := found["premium-sub"]; !ok || desc != "Premium Plan" {
-		t.Errorf("expected premium-sub with description 'Premium Plan', got %q", desc)
+	if desc, ok := found["premium-sub"]; !ok || desc != "High limits for production" {
+		t.Errorf("expected premium-sub with description 'High limits for production', got %q", desc)
 	}
 }
 
@@ -753,12 +753,15 @@ func TestListSubscriptionsForModel_UnknownModel(t *testing.T) {
 
 func TestListSubscriptions_DescriptionFallback(t *testing.T) {
 	lister := &mockLister{subscriptions: []*unstructured.Unstructured{
-		createTestSubscriptionWithAnnotations("with-display-name", []string{"free-users"}, []string{"m"}, map[string]string{
+		createTestSubscriptionWithAnnotations("both-annotations", []string{"free-users"}, []string{"m"}, map[string]string{
 			"openshift.io/display-name": "My Display Name",
 			"openshift.io/description":  "My Description",
 		}),
 		createTestSubscriptionWithAnnotations("with-description-only", []string{"free-users"}, []string{"m"}, map[string]string{
 			"openshift.io/description": "Description Only",
+		}),
+		createTestSubscriptionWithAnnotations("with-display-name-only", []string{"free-users"}, []string{"m"}, map[string]string{
+			"openshift.io/display-name": "Display Name Only",
 		}),
 		createTestSubscriptionWithAnnotations("no-annotations", []string{"free-users"}, []string{"m"}, nil),
 	}}
@@ -777,23 +780,36 @@ func TestListSubscriptions_DescriptionFallback(t *testing.T) {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	if len(result) != 3 {
-		t.Fatalf("expected 3 subscriptions, got %d", len(result))
+	if len(result) != 4 {
+		t.Fatalf("expected 4 subscriptions, got %d", len(result))
 	}
 
-	descriptions := map[string]string{}
+	byID := map[string]subscription.SubscriptionInfo{}
 	for _, s := range result {
-		descriptions[s.SubscriptionIDHeader] = s.SubscriptionDescription
+		byID[s.SubscriptionIDHeader] = s
 	}
 
-	if descriptions["with-display-name"] != "My Display Name" {
-		t.Errorf("expected display-name fallback, got %q", descriptions["with-display-name"])
+	// Description preferred over display-name
+	if byID["both-annotations"].SubscriptionDescription != "My Description" {
+		t.Errorf("expected description 'My Description', got %q", byID["both-annotations"].SubscriptionDescription)
 	}
-	if descriptions["with-description-only"] != "Description Only" {
-		t.Errorf("expected description fallback, got %q", descriptions["with-description-only"])
+	if byID["both-annotations"].DisplayName != "My Display Name" {
+		t.Errorf("expected display_name 'My Display Name', got %q", byID["both-annotations"].DisplayName)
 	}
-	if descriptions["no-annotations"] != "no-annotations" {
-		t.Errorf("expected name fallback, got %q", descriptions["no-annotations"])
+	// Description only
+	if byID["with-description-only"].SubscriptionDescription != "Description Only" {
+		t.Errorf("expected description 'Description Only', got %q", byID["with-description-only"].SubscriptionDescription)
+	}
+	// Display-name falls back to subscription_description when no description
+	if byID["with-display-name-only"].SubscriptionDescription != "Display Name Only" {
+		t.Errorf("expected description fallback to display-name, got %q", byID["with-display-name-only"].SubscriptionDescription)
+	}
+	if byID["with-display-name-only"].DisplayName != "Display Name Only" {
+		t.Errorf("expected display_name 'Display Name Only', got %q", byID["with-display-name-only"].DisplayName)
+	}
+	// No annotations: falls back to name
+	if byID["no-annotations"].SubscriptionDescription != "no-annotations" {
+		t.Errorf("expected name fallback, got %q", byID["no-annotations"].SubscriptionDescription)
 	}
 }
 

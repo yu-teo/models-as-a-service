@@ -47,7 +47,7 @@ type subscription struct {
 	OrganizationID string
 	CostCenter     string
 	Labels         map[string]string
-	ModelRefNames  []string
+	ModelRefs      []ModelRefInfo
 }
 
 // GetAllAccessible returns all subscriptions the user has access to.
@@ -199,24 +199,42 @@ func parseSubscription(obj *unstructured.Unstructured) (subscription, error) {
 		}
 	}
 
-	// Parse modelRefs to extract model names and calculate maxLimit
+	// Parse modelRefs
 	if modelRefs, found, _ := unstructured.NestedSlice(spec, "modelRefs"); found {
 		for _, modelRef := range modelRefs {
 			if modelMap, ok := modelRef.(map[string]any); ok {
+				ref := ModelRefInfo{}
 				if name, ok := modelMap["name"].(string); ok {
-					sub.ModelRefNames = append(sub.ModelRefNames, name)
+					ref.Name = name
+				}
+				if ns, ok := modelMap["namespace"].(string); ok {
+					ref.Namespace = ns
 				}
 				if limits, found, _ := unstructured.NestedSlice(modelMap, "tokenRateLimits"); found {
 					for _, limitRaw := range limits {
 						if limitMap, ok := limitRaw.(map[string]any); ok {
+							trl := TokenRateLimit{}
 							if limit, ok := limitMap["limit"].(int64); ok {
+								trl.Limit = limit
 								if limit > sub.MaxLimit {
 									sub.MaxLimit = limit
 								}
 							}
+							if window, ok := limitMap["window"].(string); ok {
+								trl.Window = window
+							}
+							ref.TokenRateLimits = append(ref.TokenRateLimits, trl)
 						}
 					}
 				}
+				if billingRate, found, _ := unstructured.NestedMap(modelMap, "billingRate"); found {
+					br := &BillingRate{}
+					if perToken, ok := billingRate["perToken"].(string); ok {
+						br.PerToken = perToken
+					}
+					ref.BillingRate = br
+				}
+				sub.ModelRefs = append(sub.ModelRefs, ref)
 			}
 		}
 	}
@@ -262,6 +280,16 @@ func userHasAccess(sub *subscription, username string, groups []string) bool {
 	return false
 }
 
+// hasModel returns true if the subscription includes the given model name.
+func (s subscription) hasModel(modelID string) bool {
+	for _, ref := range s.ModelRefs {
+		if ref.Name == modelID {
+			return true
+		}
+	}
+	return false
+}
+
 // sortSubscriptionsByPriority sorts in-place by priority desc, then maxLimit desc.
 func sortSubscriptionsByPriority(subs []subscription) {
 	sort.SliceStable(subs, func(i, j int) bool {
@@ -282,7 +310,7 @@ func (s *Selector) ListAccessibleForModel(username string, groups []string, mode
 
 	result := []SubscriptionInfo{}
 	for _, sub := range subscriptions {
-		if userHasAccess(&sub, username, groups) && slices.Contains(sub.ModelRefNames, modelID) {
+		if userHasAccess(&sub, username, groups) && sub.hasModel(modelID) {
 			result = append(result, toSubscriptionInfo(&sub))
 		}
 	}
@@ -290,37 +318,67 @@ func (s *Selector) ListAccessibleForModel(username string, groups []string, mode
 }
 
 // toSubscriptionInfo converts internal subscription to a list response item.
-// Uses display-name annotation with fallback to description annotation, then name.
 func toSubscriptionInfo(sub *subscription) SubscriptionInfo {
-	return ResponseToSubscriptionInfo(&SelectResponse{
-		Name:        sub.Name,
-		DisplayName: sub.DisplayName,
-		Description: sub.Description,
-	})
-}
-
-// ResponseToSubscriptionInfo converts a SelectResponse to a SubscriptionInfo.
-// Uses DisplayName with fallback to Description, then Name.
-func ResponseToSubscriptionInfo(sub *SelectResponse) SubscriptionInfo {
-	desc := sub.DisplayName
+	desc := sub.Description
 	if desc == "" {
-		desc = sub.Description
+		desc = sub.DisplayName
 	}
 	if desc == "" {
 		desc = sub.Name
 	}
+	modelRefs := sub.ModelRefs
+	if modelRefs == nil {
+		modelRefs = []ModelRefInfo{}
+	}
 	return SubscriptionInfo{
 		SubscriptionIDHeader:    sub.Name,
 		SubscriptionDescription: desc,
+		DisplayName:             sub.DisplayName,
+		Priority:                sub.Priority,
+		ModelRefs:               modelRefs,
+		OrganizationID:          sub.OrganizationID,
+		CostCenter:              sub.CostCenter,
+		Labels:                  sub.Labels,
+	}
+}
+
+// ResponseToSubscriptionInfo converts a SelectResponse to a SubscriptionInfo.
+func ResponseToSubscriptionInfo(sub *SelectResponse) SubscriptionInfo {
+	desc := sub.Description
+	if desc == "" {
+		desc = sub.DisplayName
+	}
+	if desc == "" {
+		desc = sub.Name
+	}
+	modelRefs := sub.ModelRefs
+	if modelRefs == nil {
+		modelRefs = []ModelRefInfo{}
+	}
+	return SubscriptionInfo{
+		SubscriptionIDHeader:    sub.Name,
+		SubscriptionDescription: desc,
+		DisplayName:             sub.DisplayName,
+		Priority:                sub.Priority,
+		ModelRefs:               modelRefs,
+		OrganizationID:          sub.OrganizationID,
+		CostCenter:              sub.CostCenter,
+		Labels:                  sub.Labels,
 	}
 }
 
 // toResponse converts internal subscription to API response.
 func toResponse(sub *subscription) *SelectResponse {
+	modelRefs := sub.ModelRefs
+	if modelRefs == nil {
+		modelRefs = []ModelRefInfo{}
+	}
 	return &SelectResponse{
 		Name:           sub.Name,
 		DisplayName:    sub.DisplayName,
 		Description:    sub.Description,
+		Priority:       sub.Priority,
+		ModelRefs:      modelRefs,
 		OrganizationID: sub.OrganizationID,
 		CostCenter:     sub.CostCenter,
 		Labels:         sub.Labels,
