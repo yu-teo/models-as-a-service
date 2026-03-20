@@ -329,6 +329,12 @@ func (s *Selector) ListAccessibleForModel(username string, groups []string, mode
 			result = append(result, toSubscriptionInfo(&sub))
 		}
 	}
+
+	// Sort for deterministic ordering
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].SubscriptionIDHeader < result[j].SubscriptionIDHeader
+	})
+
 	return result, nil
 }
 
