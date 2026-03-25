@@ -117,59 +117,59 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid insecure config sets default address :8080",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				Secure:                   false,
-				APIKeyMaxExpirationDays:  30,
+				DBConnectionURL:           "postgresql://localhost/test",
+				Secure:                    false,
+				APIKeyMaxExpirationDays:   30,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 		},
 		{
 			name: "valid secure config with self-signed sets default address :8443",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				TLS:                      TLSConfig{SelfSigned: true, MinVersion: TLSVersion(tls.VersionTLS12)},
-				APIKeyMaxExpirationDays:  30,
+				DBConnectionURL:           "postgresql://localhost/test",
+				TLS:                       TLSConfig{SelfSigned: true, MinVersion: TLSVersion(tls.VersionTLS12)},
+				APIKeyMaxExpirationDays:   30,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 		},
 		{
 			name: "valid secure config with certs",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				TLS:                      TLSConfig{Cert: "/cert.pem", Key: "/key.pem", MinVersion: TLSVersion(tls.VersionTLS12)},
-				APIKeyMaxExpirationDays:  30,
+				DBConnectionURL:           "postgresql://localhost/test",
+				TLS:                       TLSConfig{Cert: "/cert.pem", Key: "/key.pem", MinVersion: TLSVersion(tls.VersionTLS12)},
+				APIKeyMaxExpirationDays:   30,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 		},
 		{
 			name: "APIKeyMaxExpirationDays valid minimum value",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				APIKeyMaxExpirationDays:  1,
+				DBConnectionURL:           "postgresql://localhost/test",
+				APIKeyMaxExpirationDays:   1,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 		},
 		{
 			name: "APIKeyMaxExpirationDays valid default value",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				APIKeyMaxExpirationDays:  30,
+				DBConnectionURL:           "postgresql://localhost/test",
+				APIKeyMaxExpirationDays:   30,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 		},
 		{
 			name: "APIKeyMaxExpirationDays valid large value",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				APIKeyMaxExpirationDays:  365,
+				DBConnectionURL:           "postgresql://localhost/test",
+				APIKeyMaxExpirationDays:   365,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 		},
 		{
 			name: "APIKeyMaxExpirationDays zero returns error",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				APIKeyMaxExpirationDays:  0,
+				DBConnectionURL:           "postgresql://localhost/test",
+				APIKeyMaxExpirationDays:   0,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 			expectError: "must be at least 1",
@@ -177,8 +177,8 @@ func TestValidate(t *testing.T) {
 		{
 			name: "APIKeyMaxExpirationDays negative returns error",
 			cfg: Config{
-				DBConnectionURL:          "postgresql://localhost/test",
-				APIKeyMaxExpirationDays:  -1,
+				DBConnectionURL:           "postgresql://localhost/test",
+				APIKeyMaxExpirationDays:   -1,
 				MaaSSubscriptionNamespace: "models-as-a-service",
 			},
 			expectError: "must be at least 1",
