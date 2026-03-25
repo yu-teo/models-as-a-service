@@ -4,10 +4,11 @@ import (
 	"net/url"
 
 	"github.com/openai/openai-go/v2"
-	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/constant"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"knative.dev/pkg/apis"
+
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/constant"
 )
 
 const (
@@ -96,9 +97,9 @@ func maasModelRefToModel(u *unstructured.Unstructured) *Model {
 			Created: created,
 			OwnedBy: ownedBy,
 		},
-		Kind:  kind,
-		URL:   urlPtr,
-		Ready: ready,
+		Kind:    kind,
+		URL:     urlPtr,
+		Ready:   ready,
 		Details: details,
 	}
 }
