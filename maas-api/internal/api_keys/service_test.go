@@ -43,8 +43,8 @@ func TestValidateAPIKey_ValidKey(t *testing.T) {
 	ctx := context.Background()
 	svc, store := createTestService(t)
 
-	// Create a valid API key
-	keyID := "test-key-id"
+	// Create a valid API key with UUID (matches production database behavior)
+	keyID := "550e8400-e29b-41d4-a716-446655440000"
 	plainKey, hash := createTestAPIKey(t)
 	username := "alice"
 	groups := []string{"tier-premium", "system:authenticated"}
@@ -58,7 +58,7 @@ func TestValidateAPIKey_ValidKey(t *testing.T) {
 	require.NotNil(t, result)
 
 	assert.True(t, result.Valid)
-	assert.Equal(t, username, result.UserID)
+	assert.Equal(t, keyID, result.UserID) // UserID is the database-assigned key ID (UUID)
 	assert.Equal(t, username, result.Username)
 	assert.Equal(t, keyID, result.KeyID)
 	assert.Equal(t, groups, result.Groups)
@@ -108,7 +108,7 @@ func TestValidateAPIKey_RevokedKey(t *testing.T) {
 	svc, store := createTestService(t)
 
 	// Create and immediately revoke a key
-	keyID := "revoked-key-id"
+	keyID := "550e8400-e29b-41d4-a716-446655440001"
 	plainKey, hash := createTestAPIKey(t)
 	username := "bob"
 	groups := []string{"tier-free"}
@@ -134,7 +134,7 @@ func TestValidateAPIKey_ExpiredKey(t *testing.T) {
 	svc, store := createTestService(t)
 
 	// Create a key that's already expired
-	keyID := "expired-key-id"
+	keyID := "550e8400-e29b-41d4-a716-446655440002"
 	plainKey, hash := createTestAPIKey(t)
 	username := "charlie"
 	groups := []string{"tier-basic"}
@@ -157,7 +157,7 @@ func TestValidateAPIKey_EmptyGroups(t *testing.T) {
 	svc, store := createTestService(t)
 
 	// Create a key with no groups (nil)
-	keyID := "no-groups-key"
+	keyID := "550e8400-e29b-41d4-a716-446655440003"
 	plainKey, hash := createTestAPIKey(t)
 	username := "dave"
 
@@ -170,7 +170,7 @@ func TestValidateAPIKey_EmptyGroups(t *testing.T) {
 	require.NotNil(t, result)
 
 	assert.True(t, result.Valid)
-	assert.Equal(t, username, result.UserID)
+	assert.Equal(t, keyID, result.UserID) // UserID is the database-assigned key ID (UUID)
 	assert.NotNil(t, result.Groups, "Groups should be empty array, not nil")
 	assert.Empty(t, result.Groups, "Groups should be empty")
 }
@@ -180,7 +180,7 @@ func TestValidateAPIKey_UpdatesLastUsed(t *testing.T) {
 	svc, store := createTestService(t)
 
 	// Create a valid API key
-	keyID := "last-used-key"
+	keyID := "550e8400-e29b-41d4-a716-446655440004"
 	plainKey, hash := createTestAPIKey(t)
 	username := "eve"
 	groups := []string{"tier-enterprise"}
@@ -216,7 +216,7 @@ func TestGetAPIKey(t *testing.T) {
 	svc, store := createTestService(t)
 
 	// Create a key
-	keyID := "get-test-key"
+	keyID := "550e8400-e29b-41d4-a716-446655440005"
 	_, hash := createTestAPIKey(t)
 	username := "alice"
 	keyName := "Alice's Key"
@@ -249,7 +249,7 @@ func TestRevokeAPIKey(t *testing.T) {
 	svc, store := createTestService(t)
 
 	// Create a key
-	keyID := "revoke-test-key"
+	keyID := "550e8400-e29b-41d4-a716-446655440006"
 	_, hash := createTestAPIKey(t)
 	username := "bob"
 
@@ -588,6 +588,47 @@ func TestCreateAPIKey_Subscription(t *testing.T) {
 				assert.Empty(t, res.Keys)
 			})
 		}
+	})
+}
+
+// ============================================================
+// CLEANUP EXPIRED EPHEMERAL KEYS TESTS
+// ============================================================
+
+func TestCleanupExpiredEphemeral(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("DeletesExpiredEphemeralKeys", func(t *testing.T) {
+		svc, store := createTestService(t)
+
+		// Add active regular key
+		err := store.AddKey(ctx, "alice", "regular-1", "hash-1", "Regular", "", nil, "default-sub", nil, false)
+		require.NoError(t, err)
+
+		// Add expired ephemeral key
+		pastExpiry := time.Now().Add(-1 * time.Hour)
+		err = store.AddKey(ctx, "alice", "ephemeral-1", "hash-2", "Ephemeral", "", nil, "default-sub", &pastExpiry, true)
+		require.NoError(t, err)
+
+		count, err := svc.CleanupExpiredEphemeral(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), count)
+
+		// Ephemeral key should be gone
+		_, err = store.Get(ctx, "ephemeral-1")
+		require.ErrorIs(t, err, api_keys.ErrKeyNotFound)
+
+		// Regular key should still exist
+		_, err = store.Get(ctx, "regular-1")
+		require.NoError(t, err)
+	})
+
+	t.Run("ReturnsZeroWhenNoExpiredKeys", func(t *testing.T) {
+		svc, _ := createTestService(t)
+
+		count, err := svc.CleanupExpiredEphemeral(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), count)
 	})
 }
 

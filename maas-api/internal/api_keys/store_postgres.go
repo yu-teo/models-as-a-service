@@ -38,6 +38,12 @@ func NewPostgresStore(db *sql.DB, log *logger.Logger) *PostgresStore {
 // AddKey stores an API key with hash-only storage (no plaintext).
 // Keys can be permanent (expiresAt=nil) or expiring (expiresAt set).
 // ephemeral marks the key as short-lived for programmatic use.
+//
+// Note on naming: keyID parameter is the database UUID/JTI (primary key), distinct from
+// the embedded_key_id salt in the API key format. The keyHash is computed as
+// SHA-256(embedded_key_id + "\x00" + secret), where embedded_key_id is encoded in the
+// API key string (sk-oai-{embedded_key_id}_{secret}).
+//
 // Note: keyPrefix is NOT stored (security - reduces brute-force attack surface).
 func (s *PostgresStore) AddKey(
 	ctx context.Context, username, keyID, keyHash, name, description string, userGroups []string, subscription string, expiresAt *time.Time, ephemeral bool,
@@ -53,6 +59,9 @@ func (s *PostgresStore) AddKey(
 	}
 	if subscription == "" {
 		return errors.New("subscription is required")
+	}
+	if ephemeral && expiresAt == nil {
+		return errors.New("ephemeral keys must have an expiration time")
 	}
 	if userGroups == nil {
 		userGroups = []string{}
@@ -452,6 +461,29 @@ func (s *PostgresStore) UpdateLastUsed(ctx context.Context, keyID string) error 
 		return fmt.Errorf("failed to update last_used_at: %w", err)
 	}
 	return nil
+}
+
+// DeleteExpiredEphemeral removes expired ephemeral API keys that have been expired for at least 30 minutes.
+// The grace period provides a safety net before hard-deleting keys from the database.
+// Uses the partial index idx_api_keys_ephemeral_expired for efficient lookups.
+func (s *PostgresStore) DeleteExpiredEphemeral(ctx context.Context) (int64, error) {
+	query := `DELETE FROM api_keys WHERE ephemeral = TRUE AND expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '30 minutes'`
+
+	result, err := s.db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete expired ephemeral keys: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if rows > 0 {
+		s.logger.Info("Deleted expired ephemeral keys", "count", rows)
+	}
+
+	return rows, nil
 }
 
 // Close closes the database connection.

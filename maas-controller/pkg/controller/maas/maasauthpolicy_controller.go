@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -58,6 +59,14 @@ type MaaSAuthPolicyReconciler struct {
 	// ClusterAudience is the OIDC audience of the cluster (configurable via flags).
 	// Standard clusters use "https://kubernetes.default.svc"; HyperShift/ROSA use a custom OIDC provider URL.
 	ClusterAudience string
+
+	// MetadataCacheTTL is the TTL in seconds for Authorino metadata HTTP caching.
+	// Applies to apiKeyValidation and subscription-info metadata evaluators.
+	MetadataCacheTTL int64
+
+	// AuthzCacheTTL is the TTL in seconds for Authorino OPA authorization caching.
+	// Applies to auth-valid, subscription-valid, and require-group-membership authorization evaluators.
+	AuthzCacheTTL int64
 }
 
 func (r *MaaSAuthPolicyReconciler) clusterAudience() string {
@@ -65,6 +74,28 @@ func (r *MaaSAuthPolicyReconciler) clusterAudience() string {
 		return r.ClusterAudience
 	}
 	return defaultClusterAudience
+}
+
+// authzCacheTTL returns the safe TTL for authorization caches that depend on metadata.
+// Authorization cache entries must not outlive their dependent metadata cache entries,
+// otherwise stale metadata can lead to incorrect authorization decisions.
+// Returns the minimum of AuthzCacheTTL and MetadataCacheTTL, clamped to non-negative values.
+func (r *MaaSAuthPolicyReconciler) authzCacheTTL() int64 {
+	metadata := r.MetadataCacheTTL
+	authz := r.AuthzCacheTTL
+
+	// Defensive: clamp negative values to 0 (should be caught at startup, but defensive)
+	if metadata < 0 {
+		metadata = 0
+	}
+	if authz < 0 {
+		authz = 0
+	}
+
+	if authz < metadata {
+		return authz
+	}
+	return metadata
 }
 
 //+kubebuilder:rbac:groups=maas.opendatahub.io,resources=maasauthpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -195,7 +226,15 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 		rule := map[string]interface{}{
 			"metadata": map[string]interface{}{
 				// API Key Validation - validates the API key and returns user identity + groups
+				// Only runs for API key requests (sk-oai-* prefix), not K8s tokens
 				"apiKeyValidation": map[string]interface{}{
+					"when": []interface{}{
+						map[string]interface{}{
+							"selector": "request.headers.authorization",
+							"operator": "matches",
+							"value":    "^Bearer sk-oai-.*",
+						},
+					},
 					"http": map[string]interface{}{
 						"url":         apiKeyValidationURL,
 						"contentType": "application/json",
@@ -203,6 +242,15 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 						"body": map[string]interface{}{
 							"expression": `{"key": request.headers.authorization.replace("Bearer ", "")}`,
 						},
+					},
+					// Cache API key validation results keyed by the API key itself.
+					// Key format: "api-key-value"
+					// This prevents repeated validation calls for the same API key within the TTL window.
+					"cache": map[string]interface{}{
+						"key": map[string]interface{}{
+							"selector": `request.headers.authorization.replace("Bearer ", "")`,
+						},
+						"ttl": r.MetadataCacheTTL,
 					},
 					"metrics":  false,
 					"priority": int64(0),
@@ -218,22 +266,24 @@ func (r *MaaSAuthPolicyReconciler) reconcileModelAuthPolicies(ctx context.Contex
 						"method":      "POST",
 						"body": map[string]interface{}{
 							"expression": fmt.Sprintf(`{
-  "groups": auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups,
-  "username": auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.username : auth.identity.user.username,
-  "requestedSubscription": auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.subscription : ("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : ""),
+  "groups": (has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups,
+  "username": (has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.username : auth.identity.user.username,
+  "requestedSubscription": (has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.subscription : ("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : ""),
   "requestedModel": "%s/%s"
 }`, ref.Namespace, ref.Name),
 						},
 					},
-					// Cache subscription selection results keyed by username, groups, requested subscription, and model.
+					// Cache subscription selection results keyed by user ID, groups, requested subscription, and model.
 					// Each model has its own cache entry since subscription validation is model-specific.
-					// Key format: "username|groups-hash|requested-subscription|model-namespace/model-name"
+					// Key format: "userId|groups|requested-subscription|model-namespace/model-name"
+					// For API keys: userId is database-assigned UUID (collision-resistant)
+					// For K8s tokens: userId is validated username (system:serviceaccount:namespace:sa-name)
 					// Groups are joined with commas to create a stable string representation.
 					"cache": map[string]interface{}{
 						"key": map[string]interface{}{
-							"selector": fmt.Sprintf(`(auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.username : auth.identity.user.username) + "|" + (auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups).join(",") + "|" + (auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.subscription : ("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : "")) + "|%s/%s"`, ref.Namespace, ref.Name),
+							"selector": fmt.Sprintf(`((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.userId : auth.identity.user.username) + "|" + ((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups).join(",") + "|" + ((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.subscription : ("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : "")) + "|%s/%s"`, ref.Namespace, ref.Name),
 						},
-						"ttl": int64(60),
+						"ttl": r.MetadataCacheTTL,
 					},
 					"metrics":  false,
 					"priority": int64(1),
@@ -304,6 +354,17 @@ allow {
   object.get(input.auth.identity, "user", {}).username != ""
 }`,
 			},
+			// Cache authorization result keyed by authentication source and identity.
+			// For API keys: uses the API key value
+			// For K8s tokens: uses the username
+			// Key format: "auth-type|identity|model"
+			// TTL cannot exceed metadata TTL (auth-valid depends on apiKeyValidation metadata)
+			"cache": map[string]interface{}{
+				"key": map[string]interface{}{
+					"selector": fmt.Sprintf(`(has(auth.metadata.apiKeyValidation) ? "api-key|" + request.headers.authorization.replace("Bearer ", "") : "k8s-token|" + auth.identity.user.username) + "|%s/%s"`, ref.Namespace, ref.Name),
+				},
+				"ttl": r.authzCacheTTL(),
+			},
 		}
 
 		// Fail-close: require successful subscription selection (name must be present)
@@ -312,6 +373,17 @@ allow {
 			"priority": int64(0),
 			"opa": map[string]interface{}{
 				"rego": `allow { object.get(input.auth.metadata["subscription-info"], "name", "") != "" }`,
+			},
+			// Cache authorization result keyed by subscription selection inputs.
+			// Uses same key dimensions as subscription-info metadata to ensure cache coherence.
+			// Key format: "userId|groups|requested-subscription|model"
+			// For API keys: userId is database UUID. For K8s tokens: validated username.
+			// TTL cannot exceed metadata TTL (subscription-valid depends on subscription-info metadata)
+			"cache": map[string]interface{}{
+				"key": map[string]interface{}{
+					"selector": fmt.Sprintf(`((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.userId : auth.identity.user.username) + "|" + ((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups).join(",") + "|" + ((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.subscription : ("x-maas-subscription" in request.headers ? request.headers["x-maas-subscription"] : "")) + "|%s/%s"`, ref.Namespace, ref.Name),
+				},
+				"ttl": r.authzCacheTTL(),
 			},
 		}
 
@@ -354,6 +426,17 @@ allow {
 }
 `, string(groupsJSON), string(usersJSON)),
 				},
+				// Cache authorization result keyed by user ID, groups, and model.
+				// The allowed groups/users are baked into the OPA rego, so the cache is per-model-policy.
+				// Key format: "userId|groups|model"
+				// For API keys: userId is database UUID. For K8s tokens: validated username.
+				// TTL cannot exceed metadata TTL (require-group-membership depends on apiKeyValidation metadata for groups)
+				"cache": map[string]interface{}{
+					"key": map[string]interface{}{
+						"selector": fmt.Sprintf(`((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.userId : auth.identity.user.username) + "|" + ((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups).join(",") + "|%s/%s"`, ref.Namespace, ref.Name),
+					},
+					"ttl": r.authzCacheTTL(),
+				},
 			}
 		}
 
@@ -372,15 +455,16 @@ allow {
 					// Username from API key validation or K8s token identity
 					"X-MaaS-Username": map[string]interface{}{
 						"plain": map[string]interface{}{
-							"expression": `auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.username : auth.identity.user.username`,
+							"expression": `(has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.username : auth.identity.user.username`,
 						},
 						"metrics":  false,
 						"priority": int64(0),
 					},
-					// Groups - construct JSON array string from API key validation or K8s identity
+					// Groups - serialize to JSON array string from API key validation or K8s identity
+					// Using string() conversion of JSON-serialized groups for proper escaping
 					"X-MaaS-Group": map[string]interface{}{
 						"plain": map[string]interface{}{
-							"expression": `'["' + (auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups).join('","') + '"]'`,
+							"expression": `string(((has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.groups : auth.identity.user.groups))`,
 						},
 						"metrics":  false,
 						"priority": int64(0),
@@ -388,7 +472,7 @@ allow {
 					// Key ID for tracking (only for API keys)
 					"X-MaaS-Key-Id": map[string]interface{}{
 						"plain": map[string]interface{}{
-							"expression": `auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.keyId : ""`,
+							"expression": `(has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.keyId : ""`,
 						},
 						"metrics":  false,
 						"priority": int64(0),
@@ -397,7 +481,7 @@ allow {
 					// For K8s tokens, this header is not injected (empty string)
 					"X-MaaS-Subscription": map[string]interface{}{
 						"plain": map[string]interface{}{
-							"expression": `auth.metadata.apiKeyValidation.valid == true ? auth.metadata.apiKeyValidation.subscription : ""`,
+							"expression": `(has(auth.metadata) && has(auth.metadata.apiKeyValidation)) ? auth.metadata.apiKeyValidation.subscription : ""`,
 						},
 						"metrics":  false,
 						"priority": int64(0),
@@ -552,7 +636,54 @@ allow {
 			}
 		}
 	}
+	if err := r.cleanupStaleAuthPolicies(ctx, log, policy); err != nil {
+		return nil, err
+	}
+
 	return refs, nil
+}
+
+// cleanupStaleAuthPolicies deletes aggregated AuthPolicies for models that this
+// policy previously contributed to but no longer references in spec.modelRefs.
+// Generated AuthPolicies track contributing policies in the
+// "maas.opendatahub.io/auth-policies" annotation (namespace-qualified: "ns/name").
+func (r *MaaSAuthPolicyReconciler) cleanupStaleAuthPolicies(ctx context.Context, log logr.Logger, policy *maasv1alpha1.MaaSAuthPolicy) error {
+	currentModels := make(map[string]bool, len(policy.Spec.ModelRefs))
+	for _, ref := range policy.Spec.ModelRefs {
+		currentModels[ref.Namespace+"/"+ref.Name] = true
+	}
+
+	allManaged := &unstructured.UnstructuredList{}
+	allManaged.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1", Kind: "AuthPolicyList"})
+	if err := r.List(ctx, allManaged, client.MatchingLabels{
+		"app.kubernetes.io/managed-by": "maas-controller",
+		"app.kubernetes.io/part-of":    "maas-auth-policy",
+	}); err != nil {
+		if apierrors.IsNotFound(err) || apimeta.IsNoMatchError(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to list managed AuthPolicies for stale cleanup: %w", err)
+	}
+
+	for i := range allManaged.Items {
+		ap := &allManaged.Items[i]
+		modelName := ap.GetLabels()["maas.opendatahub.io/model"]
+		if modelName == "" {
+			continue
+		}
+		modelKey := ap.GetNamespace() + "/" + modelName
+		if currentModels[modelKey] {
+			continue
+		}
+		if !slices.Contains(strings.Split(ap.GetAnnotations()["maas.opendatahub.io/auth-policies"], ","), policy.Name) {
+			continue
+		}
+		log.Info("Cleaning up stale AuthPolicy for removed modelRef", "model", modelKey, "authPolicy", ap.GetName())
+		if err := r.deleteModelAuthPolicy(ctx, log, ap.GetNamespace(), modelName); err != nil {
+			return fmt.Errorf("failed to clean up stale AuthPolicy for removed model %s: %w", modelKey, err)
+		}
+	}
+	return nil
 }
 
 // deleteModelAuthPolicy deletes the aggregated AuthPolicy for a model in the given namespace.
@@ -595,6 +726,11 @@ func (r *MaaSAuthPolicyReconciler) handleDeletion(ctx context.Context, log logr.
 				log.Error(err, "failed to clean up AuthPolicy, will retry", "model", ref.Namespace+"/"+ref.Name)
 				return ctrl.Result{}, err
 			}
+		}
+		// Also clean up stale AuthPolicies from modelRefs that were removed
+		// before the CR was deleted (edge case: edit + delete before reconcile).
+		if err := r.cleanupStaleAuthPolicies(ctx, log, policy); err != nil {
+			return ctrl.Result{}, err
 		}
 		controllerutil.RemoveFinalizer(policy, maasAuthPolicyFinalizer)
 		if err := r.Update(ctx, policy); err != nil {
@@ -676,7 +812,35 @@ func (r *MaaSAuthPolicyReconciler) updateStatus(ctx context.Context, policy *maa
 	}
 }
 
+// ValidateCacheTTLs validates that cache TTL configuration is valid.
+// Returns an error if either TTL is negative (fail-closed validation).
+func (r *MaaSAuthPolicyReconciler) ValidateCacheTTLs() error {
+	if r.MetadataCacheTTL < 0 {
+		return fmt.Errorf("metadata cache TTL must be non-negative, got %d", r.MetadataCacheTTL)
+	}
+	if r.AuthzCacheTTL < 0 {
+		return fmt.Errorf("authorization cache TTL must be non-negative, got %d", r.AuthzCacheTTL)
+	}
+	return nil
+}
+
 func (r *MaaSAuthPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Validate cache TTL configuration
+	log := ctrl.Log.WithName("maas-authpolicy-controller")
+
+	// Reject negative TTL values
+	if err := r.ValidateCacheTTLs(); err != nil {
+		return err
+	}
+
+	if r.AuthzCacheTTL > r.MetadataCacheTTL {
+		log.Info("WARNING: Authorization cache TTL exceeds metadata cache TTL. "+
+			"Authorization caches will be capped at metadata TTL to prevent stale authorization decisions.",
+			"authzCacheTTL", r.AuthzCacheTTL,
+			"metadataCacheTTL", r.MetadataCacheTTL,
+			"effectiveAuthzTTL", r.authzCacheTTL())
+	}
+
 	// Watch generated AuthPolicies so we re-reconcile when someone manually edits them.
 	generatedAuthPolicy := &unstructured.Unstructured{}
 	generatedAuthPolicy.SetGroupVersionKind(schema.GroupVersionKind{Group: "kuadrant.io", Version: "v1", Kind: "AuthPolicy"})
