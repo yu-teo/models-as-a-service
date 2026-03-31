@@ -41,7 +41,7 @@ fi
 
 echo ""
 echo "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
-echo "┃  ⚠️  NOT INTENDED FOR PRODUCTION USE                            ┃"
+echo "┃  ⚠️  WARNING FOR PRODUCTION USE. ⚠️                             ┃"
 echo "┃  This deploys PostgreSQL with ephemeral storage (emptyDir).     ┃"
 echo "┃  Data WILL be lost on pod restart.                              ┃"
 echo "┃  For production, use an external database:                      ┃"
