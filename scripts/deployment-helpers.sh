@@ -1480,9 +1480,11 @@ create_maas_db_config_secret() {
     return 1
   fi
 
-  kubectl create secret generic maas-db-config \
-    --from-literal=DB_CONNECTION_URL="$connection_url" \
-    --dry-run=client -o yaml | \
+  # Pass the connection URL via stdin to avoid exposing credentials in process arguments
+  printf '%s' "$connection_url" | \
+    kubectl create secret generic maas-db-config \
+      --from-file=DB_CONNECTION_URL=/dev/stdin \
+      --dry-run=client -o yaml | \
     kubectl label --local -f - app=maas-api --dry-run=client -o yaml | \
     kubectl apply -n "$namespace" -f -
 }
