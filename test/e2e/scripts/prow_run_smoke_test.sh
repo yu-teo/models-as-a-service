@@ -497,6 +497,23 @@ run_e2e_tests() {
     echo "  - ADMIN_OC_TOKEN: $(echo "${ADMIN_OC_TOKEN:-not set}" | cut -c1-20)..."
     echo "  - GATEWAY_HOST: ${GATEWAY_HOST}"
 
+    # Wait for gateway to be reachable (DNS propagation + route readiness)
+    local scheme="https"
+    [[ "$INSECURE_HTTP" == "true" ]] && scheme="http"
+    local gw_url="${scheme}://${GATEWAY_HOST}/maas-api/healthz"
+    local gw_timeout=120
+    local gw_deadline=$((SECONDS + gw_timeout))
+    echo "Waiting for gateway to be reachable: ${gw_url} (timeout: ${gw_timeout}s)..."
+    while [[ $SECONDS -lt $gw_deadline ]]; do
+        if curl -skS -m 5 "$gw_url" -o /dev/null 2>/dev/null; then
+            echo "✅ Gateway is reachable"
+            break
+        fi
+    done
+    if [[ $SECONDS -ge $gw_deadline ]]; then
+        echo "⚠️  WARNING: Gateway not reachable after ${gw_timeout}s, proceeding anyway (tests may fail)"
+    fi
+
     # Run all e2e tests: API keys, subscription, models endpoint, and namespace scoping tests
     if ! PYTHONPATH="$test_dir:${PYTHONPATH:-}" pytest \
         -v --maxfail=5 --disable-warnings \
