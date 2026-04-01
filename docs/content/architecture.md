@@ -68,9 +68,9 @@ graph TB
 
 **Flow summary:**
 
-1. User sends `POST /v1/api-keys` with Bearer `{oc-token}`.
+1. User sends `POST /v1/api-keys` with Bearer `{identity-token}`.
 2. Gateway routes the request to AuthPolicy (Authorino).
-3. AuthPolicy validates the OpenShift token via TokenReview.
+3. AuthPolicy validates the presented identity token via the configured auth method (`kubernetesTokenReview` for OpenShift, or OIDC JWT validation when enabled).
 4. Gateway forwards the authenticated request and user context to the Key Minting Service.
 
 ```mermaid
@@ -88,9 +88,9 @@ graph TB
         KMS[MaaS API]
     end
     
-    U -->|"1. POST /v1/api-keys<br/>Bearer {oc-token}"| G
+    U -->|"1. POST /v1/api-keys<br/>Bearer {identity-token}"| G
     G -->|"2. Route /maas-api"| AP
-    AP -->|"3. TokenReview<br/>validate OpenShift token"| G
+    AP -->|"3. Validate identity token<br/>TokenReview or OIDC JWT"| G
     G -->|"4. Forward + user context"| KMS
     
     style KMS fill:#1976d2,stroke:#333,stroke-width:2px,color:#fff
@@ -98,8 +98,8 @@ graph TB
     style AP fill:#e65100,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-!!! Tip "Future Plans"
-    Today, validation uses the **OpenShift token flow** (TokenReview). Future plans include optional integration with other OIDC providers (e.g., external IdPs, Keycloak).
+!!! Tip "OIDC Support"
+    The `maas-api` route can be configured to validate external OIDC tokens (for example Keycloak-issued JWTs) in addition to the existing OpenShift TokenReview flow. Model routes still use the current API-key policy, so the interim OIDC flow is: authenticate with OIDC at `maas-api`, mint an `sk-oai-*` key, then use that key for model discovery and inference.
 
 
 ### Key Minting Service (Default Implementation)
@@ -214,7 +214,7 @@ The MaaSAuthPolicy delegates to the MaaS API for key validation and subscription
 2. MaaS API validates the key (format, not revoked, not expired) and returns username, groups, and subscription.
 3. Authorino calls MaaS API to check subscription (groups, username, requested subscription from the key).
 4. If the user lacks access to the requested subscription → error (403).
-5. On success, returns selected subscription; Authorino caches the result (e.g., 60s TTL). AuthPolicy may inject `X-MaaS-Subscription` **server-side** for downstream rate limiting and metrics. Clients do not send this header on inference; subscription comes from the API key record created at mint time.
+5. On success, returns selected subscription; Authorino caches the result (e.g., 60s TTL). Identity information (username, groups, subscription, key ID) is made available to TokenRateLimitPolicy and observability through AuthPolicy's `filters.identity` mechanism, but is **not forwarded** as HTTP headers to upstream model workloads (defense-in-depth security). Clients do not send subscription headers on inference; subscription comes from the API key record created at mint time.
 
 ```mermaid
 graph TB
@@ -288,7 +288,7 @@ graph LR
 
 ### 1. API Key Creation Flow (MaaS API)
 
-Users create API keys by authenticating with their OpenShift token. The MaaS API generates a key, stores only the hash in PostgreSQL, and returns the plaintext once:
+Users create API keys by authenticating with an accepted identity token (OpenShift today, or OIDC when configured on the `maas-api` route). The MaaS API generates a key, stores only the hash in PostgreSQL, and returns the plaintext once:
 
 ```mermaid
 sequenceDiagram
@@ -298,9 +298,9 @@ sequenceDiagram
     participant MaaS as MaaS API
     participant DB as PostgreSQL
 
-    User->>Gateway: POST /maas-api/v1/api-keys<br/>Authorization: Bearer {openshift-token}
+    User->>Gateway: POST /maas-api/v1/api-keys<br/>Authorization: Bearer {identity-token}
     Gateway->>Authorino: Enforce MaaS API AuthPolicy
-    Authorino->>Authorino: TokenReview (validate OpenShift token)
+    Authorino->>Authorino: Validate token (TokenReview or OIDC JWT)
     Authorino->>Gateway: Authenticated
     Gateway->>MaaS: Forward request with user context
 

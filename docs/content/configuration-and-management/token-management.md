@@ -123,7 +123,7 @@ The validation endpoint (`/internal/v1/api-keys/validate`) is called by Authorin
 
 ## Model Discovery
 
-The `/v1/models` endpoint allows you to discover which models you're authorized to access. This endpoint works with any valid authentication token — you can use your OpenShift token or an API key.
+The `/v1/models` endpoint allows you to discover which models you're authorized to access. The API forwards the same `Authorization` header you send to each model route, so the result depends on what those model routes accept.
 
 ### How It Works
 
@@ -138,12 +138,22 @@ flowchart LR
 
 This means you can:
 
-1. **Authenticate with OpenShift or OIDC** — use your existing identity token for `GET /v1/models` (optional `X-MaaS-Subscription` when you have multiple subscriptions).
-2. **Use an API key** — use your `sk-oai-*` key in the Authorization header for listing and for inference.
-3. **Call `/v1/models` immediately** — see only the models you can access, without creating an API key first (if using an OpenShift token).
+1. **Use an API key** — this is the most portable option because the current model-route AuthPolicies already validate `sk-oai-*` keys.
+2. **Use an identity token directly** — only when the model routes themselves accept that token type.
+3. **Create a key first for the interim OIDC flow** — when OIDC is enabled only on the `maas-api` route, use your OIDC token to call `POST /v1/api-keys`, then call `/v1/models` with the minted API key.
 
 !!! note "Inference vs listing"
-    Inference (calls to each model’s chat/completions URL) requires an API key in `Authorization: Bearer` only. Do not send `X-MaaS-Subscription` on inference—the subscription is the one bound at API key mint time. `GET /v1/models` accepts either an API key or an OpenShift token; with a user token, `X-MaaS-Subscription` remains supported for filtering.
+    Inference (calls to each model's chat/completions URL) requires an API key in `Authorization: Bearer` only. Do not send `X-MaaS-Subscription` on inference—the subscription is the one bound at API key mint time. `GET /v1/models` accepts either an API key or an OpenShift token; with a user token, `X-MaaS-Subscription` remains supported for filtering.
+
+### Interim OIDC Flow
+
+When the `maas-api` AuthPolicy is configured for OIDC but model HTTPRoutes still use the existing API-key-only policy, the flow is:
+
+1. Authenticate to your IdP and obtain an OIDC access token.
+2. Call `POST /v1/api-keys` with that OIDC token.
+3. Use the returned `sk-oai-*` key for `GET /v1/models` and inference requests.
+
+This preserves compatibility with the current model-route policy while allowing non-OpenShift identities to onboard through `maas-api`.
 
 ---
 
@@ -196,6 +206,66 @@ Revocation updates the key status to `revoked` in the database. The next validat
 !!! warning "Important"
     **For Platform Administrators**: Admins can revoke any user's keys via `DELETE /v1/api-keys/:id` (if they own or have admin access) or `POST /v1/api-keys/bulk-revoke` with the target username. This is an effective way to immediately cut off access for a specific user in response to a security event.
 
+### Ephemeral Keys
+
+Ephemeral keys are short-lived credentials designed for temporary programmatic access (e.g., playground sessions). They differ from regular keys:
+
+| Property | Regular Key | Ephemeral Key |
+|----------|-------------|---------------|
+| Default expiration | Configured maximum (e.g., 90 days) | 1 hour |
+| Maximum expiration | Configured maximum | 1 hour |
+| Name required | Yes | No (auto-generated if omitted) |
+| Visible in default search | Yes | No (`includeEphemeral: true` required) |
+
+Create an ephemeral key:
+
+```bash
+curl -sSk -X POST "${MAAS_API_URL}/maas-api/v1/api-keys" \
+  -H "Authorization: Bearer $(oc whoami -t)" \
+  -H "Content-Type: application/json" \
+  -d '{"ephemeral": true, "expiresIn": "30m"}'
+```
+
+### Ephemeral Key Cleanup
+
+Expired ephemeral keys are automatically deleted from the database by a **CronJob** (`maas-api-key-cleanup`) that runs every 15 minutes. This prevents unbounded accumulation of expired short-lived credentials.
+
+**How it works:**
+
+1. The CronJob sends `POST /internal/v1/api-keys/cleanup` to the maas-api Service
+2. The endpoint deletes ephemeral keys that expired **more than 30 minutes ago** (grace period)
+3. Regular (non-ephemeral) keys are **never** deleted by cleanup — they remain until manually revoked
+
+**Grace period:** A 30-minute grace period after expiration ensures that recently-expired keys are not deleted while in-flight requests may still reference them. Only keys expired for longer than 30 minutes are removed.
+
+**Security:** The cleanup endpoint is cluster-internal only:
+
+- It is registered under `/internal/v1/` and is **not exposed** on the external Service or Route
+- A `NetworkPolicy` (`maas-api-cleanup-restrict`) restricts cleanup pods to communicate only with `maas-api:8080` and DNS
+- No authentication is required on the endpoint itself — access control is enforced at the network layer
+
+!!! tip "Troubleshooting cleanup"
+    **Check CronJob status:**
+    ```bash
+    oc get cronjob maas-api-key-cleanup -n <namespace>
+    oc get jobs -n <namespace> -l app=maas-api-cleanup --sort-by=.metadata.creationTimestamp
+    ```
+
+    **View cleanup logs:**
+    ```bash
+    # Latest CronJob run
+    oc logs job/$(oc get jobs -n <namespace> -l app=maas-api-cleanup \
+      --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}') \
+      -n <namespace>
+    ```
+
+    **Manually trigger cleanup** (from an allowed pod or via oc exec):
+    ```bash
+    oc exec deploy/maas-api -n <namespace> -- \
+      curl -sf -X POST http://localhost:8080/internal/v1/api-keys/cleanup
+    ```
+    Response: `{"deletedCount": N, "message": "Successfully deleted N expired ephemeral key(s)"}`
+
 ---
 
 ## Frequently Asked Questions (FAQ)
@@ -236,15 +306,15 @@ A: Yes. Your API key is bound to a subscription at creation time. If that subscr
 
 ---
 
-**Q: What's the difference between my OpenShift token and an API key?**
+**Q: What's the difference between my OpenShift/OIDC token and an API key?**
 
-A: Your **OpenShift token** is your identity token from authentication (e.g., OpenShift or OIDC). An **API key** is a long-lived credential created via `POST /v1/api-keys` and stored as a hash in PostgreSQL. For **GET /v1/models**, the API passes your Authorization header as-is to each model endpoint; you can use either. For inference, use API key.
+A: Your **OpenShift/OIDC token** is your identity token from authentication. An **API key** is a long-lived credential created via `POST /v1/api-keys` and stored as a hash in PostgreSQL. The API passes your `Authorization` header as-is to each model endpoint, so use whichever credential type the model route accepts. In the current interim OIDC rollout, use the OIDC token to mint an API key first, then use that key for `/v1/models` and inference.
 
 ---
 
 **Q: Do I need an API key to list available models?**
 
-A: No. Call **GET /v1/models** with your OpenShift/OIDC token (or an API key) in the Authorization header. The API uses that same header to probe each model endpoint and returns only models you can access.
+A: Not always. If the target model routes accept your OpenShift or OIDC token directly, call **GET /v1/models** with that token. If only the `maas-api` route is OIDC-enabled and the model routes still use API-key auth, mint an API key with `POST /v1/api-keys` first and then call **GET /v1/models** with the returned key.
 
 ---
 

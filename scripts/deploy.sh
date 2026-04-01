@@ -11,9 +11,10 @@
 # OPTIONS:
 #   --operator-type <odh|rhoai>   Operator to install (default: odh)
 #                                 Policy engine is auto-selected:
-#                                   odh → kuadrant (community v1.3.1)
+#                                   odh → kuadrant (community v1.4.2)
 #                                   rhoai → rhcl (Red Hat Connectivity Link)
 #   --enable-tls-backend          Enable TLS for Authorino/MaaS API (default: on)
+#   --enable-keycloak             Deploy Keycloak for external OIDC (optional)
 #   --namespace <namespace>       Target namespace
 #   --verbose                     Enable debug logging
 #   --dry-run                     Show what would be done
@@ -32,12 +33,29 @@
 #   LOG_LEVEL                 Logging verbosity (DEBUG, INFO, WARN, ERROR)
 #   KUSTOMIZE_FORCE_CONFLICTS When true, use --force-conflicts on kubectl apply in kustomize mode
 #
+# TIMEOUT CONFIGURATION (all in seconds, see deployment-helpers.sh for defaults):
+#   CUSTOM_RESOURCE_TIMEOUT   DataScienceCluster wait (default: 600)
+#   NAMESPACE_TIMEOUT         Namespace creation/ready (default: 300)
+#   RESOURCE_TIMEOUT          Generic resource wait (default: 300)
+#   CRD_TIMEOUT               CRD establishment (default: 180)
+#   CSV_TIMEOUT               CSV installation (default: 180)
+#   SUBSCRIPTION_TIMEOUT      Subscription install (default: 300)
+#   POD_TIMEOUT               Pod ready wait (default: 120)
+#   WEBHOOK_TIMEOUT           Webhook ready (default: 60)
+#   CUSTOM_CHECK_TIMEOUT      Generic check (default: 120)
+#   AUTHORINO_TIMEOUT         Authorino ready (default: 120)
+#   ROLLOUT_TIMEOUT           kubectl rollout status (default: 120)
+#   CATALOGSOURCE_TIMEOUT     CatalogSource ready (default: 120)
+#
 # EXAMPLES:
 #   # Deploy ODH (default, uses kuadrant policy engine)
 #   ./scripts/deploy.sh
 #
 #   # Deploy RHOAI (uses rhcl policy engine)
 #   ./scripts/deploy.sh --operator-type rhoai
+#
+#   # Deploy with Keycloak for external OIDC support
+#   ./scripts/deploy.sh --enable-keycloak
 #
 #   # Test custom MaaS API image
 #   MAAS_API_IMAGE=quay.io/myuser/maas-api:pr-123 ./scripts/deploy.sh
@@ -78,6 +96,7 @@ OPERATOR_TYPE="${OPERATOR_TYPE:-odh}"
 POLICY_ENGINE=""  # Auto-determined: odh→kuadrant, rhoai→rhcl
 NAMESPACE="${DEPLOYMENT_NAMESPACE:-}"  # Auto-determined based on operator type
 ENABLE_TLS_BACKEND="${ENABLE_TLS_BACKEND:-true}"
+ENABLE_KEYCLOAK="${ENABLE_KEYCLOAK:-false}"
 VERBOSE="${VERBOSE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 OPERATOR_CATALOG="${OPERATOR_CATALOG:-}"
@@ -88,6 +107,7 @@ OPERATOR_INSTALL_PLAN_APPROVAL="${OPERATOR_INSTALL_PLAN_APPROVAL:-}"
 MAAS_API_IMAGE="${MAAS_API_IMAGE:-}"
 MAAS_CONTROLLER_IMAGE="${MAAS_CONTROLLER_IMAGE:-}"
 KUSTOMIZE_FORCE_CONFLICTS="${KUSTOMIZE_FORCE_CONFLICTS:-false}"
+EXTERNAL_OIDC="${EXTERNAL_OIDC:-false}"
 
 #──────────────────────────────────────────────────────────────
 # HELP TEXT
@@ -108,16 +128,21 @@ OPTIONS:
       Which operator to install (default: odh)
       Policy engine is auto-selected based on operator type:
       - rhoai → rhcl (Red Hat Connectivity Link)
-      - odh → kuadrant (community v1.3.1 with AuthPolicy v1)
+      - odh → kuadrant (community v1.4.2 with AuthPolicy v1)
       Only applies when --deployment-mode=operator
 
   --enable-tls-backend
       Enable TLS backend for Authorino and MaaS API (default: enabled)
-      Configures HTTPS tier lookup URL
+      Configures HTTPS for Authorino to maas-api communication
 
   --disable-tls-backend
       Disable TLS backend for Authorino and MaaS API
-      Uses HTTP tier lookup URL instead
+      Uses HTTP for Authorino to maas-api communication
+
+  --enable-keycloak
+      Deploy Keycloak identity provider for external OIDC support (optional)
+      Creates keycloak-system namespace and deploys Keycloak operator
+      See docs/samples/install/keycloak/ for configuration guide
 
   --namespace <namespace>
       Target namespace for deployment
@@ -153,6 +178,11 @@ ADVANCED OPTIONS (PR Testing):
       Operator channel override
       Default: fast-3 (ODH), fast-3.x (RHOAI)
 
+  --external-oidc
+      Enable external OIDC on the maas-api AuthPolicy.
+      Requires OIDC_ISSUER_URL or deployment/overlays/odh/params.env to provide
+      a real oidc-issuer-url value.
+
 ENVIRONMENT VARIABLES:
   MAAS_API_IMAGE            Custom MaaS API container image
   MAAS_CONTROLLER_IMAGE     Custom MaaS controller container image
@@ -161,8 +191,20 @@ ENVIRONMENT VARIABLES:
   OPERATOR_STARTING_CSV     ODH Subscription startingCSV (default: opendatahub-operator.v3.4.0-ea.1; "-" to omit)
   OPERATOR_INSTALL_PLAN_APPROVAL  ODH Subscription OLM approval (default: Manual — no auto-upgrades; first InstallPlan is auto-approved by the script)
   OPERATOR_TYPE             Operator type (rhoai/odh)
+  EXTERNAL_OIDC            Enable external OIDC on maas-api (true/false)
+  OIDC_ISSUER_URL          External OIDC issuer URL for maas-api AuthPolicy patching
   LOG_LEVEL                 Logging verbosity (DEBUG, INFO, WARN, ERROR)
   KUSTOMIZE_FORCE_CONFLICTS When true, pass --force-conflicts to kubectl apply in kustomize mode (default: false)
+
+TIMEOUT CONFIGURATION (all values in seconds):
+  Customize timeouts for slow clusters or CI/CD environments:
+  - CUSTOM_RESOURCE_TIMEOUT=600   DataScienceCluster wait
+  - NAMESPACE_TIMEOUT=300         Namespace creation
+  - CRD_TIMEOUT=180              CRD establishment
+  - CSV_TIMEOUT=180              Operator CSV installation
+  - ROLLOUT_TIMEOUT=120          Deployment rollout
+  - AUTHORINO_TIMEOUT=120        Authorino ready
+  See deployment-helpers.sh for complete list and defaults
 
 EXAMPLES:
   # Deploy ODH (default, uses kuadrant policy engine)
@@ -170,6 +212,9 @@ EXAMPLES:
 
   # Deploy RHOAI (uses rhcl policy engine)
   ./scripts/deploy.sh --operator-type rhoai
+
+  # Deploy with Keycloak for external OIDC support
+  ./scripts/deploy.sh --enable-keycloak
 
   # Deploy via Kustomize
   ./scripts/deploy.sh --deployment-mode kustomize
@@ -225,6 +270,10 @@ parse_arguments() {
         ENABLE_TLS_BACKEND="false"
         shift
         ;;
+      --enable-keycloak)
+        ENABLE_KEYCLOAK="true"
+        shift
+        ;;
       --namespace)
         require_flag_value "$1" "${2:-}"
         NAMESPACE="$2"
@@ -264,6 +313,10 @@ parse_arguments() {
         require_flag_value "$1" "${2:-}"
         OPERATOR_CHANNEL="$2"
         shift 2
+        ;;
+      --external-oidc)
+        EXTERNAL_OIDC="true"
+        shift
         ;;
       --help|-h)
         show_help
@@ -343,13 +396,13 @@ validate_configuration() {
   fi
 
   # Auto-determine policy engine based on operator type
-  # - ODH uses community Kuadrant (v1.3.1 from upstream catalog has AuthPolicy v1)
+  # - ODH uses community Kuadrant (v1.4.2 from upstream catalog has AuthPolicy v1)
   # - RHOAI uses RHCL (Red Hat Connectivity Link - downstream)
   if [[ "$DEPLOYMENT_MODE" == "operator" ]]; then
     case "$OPERATOR_TYPE" in
       odh)
         POLICY_ENGINE="kuadrant"
-        log_debug "Auto-selected policy engine for ODH: kuadrant (community v1.3.1)"
+        log_debug "Auto-selected policy engine for ODH: kuadrant (community v1.4.2)"
         ;;
       rhoai)
         POLICY_ENGINE="rhcl"
@@ -408,6 +461,11 @@ main() {
   log_info "  Policy Engine: $POLICY_ENGINE"
   log_info "  Namespace: $NAMESPACE"
   log_info "  TLS Backend: $ENABLE_TLS_BACKEND"
+  log_info "  External OIDC: $EXTERNAL_OIDC"
+  if [[ "$EXTERNAL_OIDC" == "true" ]] && [[ "$DEPLOYMENT_MODE" == "operator" ]]; then
+    log_warn "  --external-oidc is ignored in operator mode. Configure external OIDC via"
+    log_warn "  the ModelsAsService CR: spec.externalOIDC.issuerUrl / clientId instead."
+  fi
   if [[ -n "${MAAS_API_IMAGE:-}" ]]; then
     log_info "  MaaS API image: $MAAS_API_IMAGE"
   fi
@@ -471,8 +529,8 @@ main() {
     fi
 
     log_info "  Waiting for maas-controller to be ready..."
-    if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout=120s; then
-      log_error "maas-controller deployment not ready"
+    if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout="${ROLLOUT_TIMEOUT}s"; then
+      log_error "maas-controller deployment not ready (timeout: ${ROLLOUT_TIMEOUT}s)"
       return 1
     fi
 
@@ -489,8 +547,8 @@ main() {
       log_info "  Non-standard cluster audience detected: $cluster_aud"
       log_info "  Patching maas-controller with correct CLUSTER_AUDIENCE..."
       kubectl set env deployment/maas-controller -n "$NAMESPACE" CLUSTER_AUDIENCE="$cluster_aud"
-      if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout=120s; then
-        log_warn "maas-controller rollout after audience patch did not complete in time"
+      if ! kubectl rollout status deployment/maas-controller -n "$NAMESPACE" --timeout="${ROLLOUT_TIMEOUT}s"; then
+        log_warn "maas-controller rollout after audience patch did not complete in time (timeout: ${ROLLOUT_TIMEOUT}s)"
       fi
     fi
   fi
@@ -517,13 +575,21 @@ deploy_via_operator() {
   install_policy_engine
 
   # Install primary operator (creates namespace)
-  install_primary_operator
+  if ! install_primary_operator; then
+    log_error "Primary operator installation failed"
+    exit 1
+  fi
 
   # Apply custom resources
   apply_custom_resources
 
   # Deploy PostgreSQL for API key storage (requires namespace to exist)
   deploy_postgresql
+
+  # Deploy Keycloak identity provider (optional, if enabled)
+  if [[ "$ENABLE_KEYCLOAK" == "true" ]]; then
+    deploy_keycloak
+  fi
 
   # Inject custom MaaS API image if specified
   inject_maas_api_image_operator_mode "$NAMESPACE"
@@ -532,6 +598,7 @@ deploy_via_operator() {
   if [[ "$ENABLE_TLS_BACKEND" == "true" ]]; then
     configure_tls_backend
   fi
+
 
   # Configure audience for non-standard clusters (Hypershift/ROSA)
   configure_cluster_audience
@@ -569,9 +636,18 @@ deploy_via_kustomize() {
   set_maas_controller_image
   set_overlay_namespace "$overlay" "$NAMESPACE"
 
-  if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
-    log_info "Creating namespace: $NAMESPACE"
-    kubectl create namespace "$NAMESPACE"
+  # Create namespace (idempotent - treat AlreadyExists as success to avoid TOCTOU races)
+  log_info "Ensuring namespace exists: $NAMESPACE"
+  if ! kubectl create namespace "$NAMESPACE" 2>/dev/null; then
+    # Create failed - check if it's because namespace already exists
+    if kubectl get namespace "$NAMESPACE" &>/dev/null; then
+      log_debug "Namespace $NAMESPACE already exists"
+    else
+      log_error "Failed to create namespace $NAMESPACE"
+      return 1
+    fi
+  else
+    log_info "Created namespace: $NAMESPACE"
   fi
 
   # Note: The subscription namespace (default: models-as-a-service) is automatically
@@ -581,6 +657,11 @@ deploy_via_kustomize() {
 
   # Deploy PostgreSQL for API key storage (requires namespace to exist)
   deploy_postgresql
+
+  # Deploy Keycloak identity provider (optional, if enabled)
+  if [[ "$ENABLE_KEYCLOAK" == "true" ]]; then
+    deploy_keycloak
+  fi
 
   log_info "Applying kustomize manifests..."
   # Patch the maas-api URL placeholder with actual namespace
@@ -604,6 +685,10 @@ deploy_via_kustomize() {
     configure_tls_backend
   fi
 
+  # Patch the live AuthPolicy after kustomize apply so OIDC and API key
+  # behavior matches operator mode when configured.
+  configure_maas_api_authpolicy
+
   # Configure audience for non-standard clusters (HyperShift/ROSA)
   configure_cluster_audience
 
@@ -616,6 +701,15 @@ deploy_via_kustomize() {
 
 deploy_postgresql() {
   NAMESPACE="$NAMESPACE" "${SCRIPT_DIR}/setup-database.sh"
+}
+
+#──────────────────────────────────────────────────────────────
+# KEYCLOAK DEPLOYMENT
+#──────────────────────────────────────────────────────────────
+
+deploy_keycloak() {
+  log_info "Deploying Keycloak identity provider for external OIDC support..."
+  "${SCRIPT_DIR}/setup-keycloak.sh"
 }
 
 #──────────────────────────────────────────────────────────────
@@ -761,8 +855,8 @@ patch_kuadrant_csv_for_gateway() {
     # Wait for the new pod to be ready
     log_info "Waiting for operator pod to restart..."
     sleep 5
-    kubectl rollout status deployment/"$operator_deployment" -n "$namespace" --timeout=120s 2>/dev/null || \
-      log_warn "Operator rollout status check timed out"
+    kubectl rollout status deployment/"$operator_deployment" -n "$namespace" --timeout="${ROLLOUT_TIMEOUT}s" 2>/dev/null || \
+      log_warn "Operator rollout status check timed out (timeout: ${ROLLOUT_TIMEOUT}s)"
     
     # Verify the env var is in the RUNNING pod
     local pod_env
@@ -790,7 +884,7 @@ install_policy_engine() {
   case "$POLICY_ENGINE" in
     rhcl)
       log_info "Installing RHCL (Red Hat Connectivity Link - downstream)"
-      install_olm_operator \
+      if ! install_olm_operator \
         "rhcl-operator" \
         "rh-connectivity-link" \
         "redhat-operators" \
@@ -798,7 +892,10 @@ install_policy_engine() {
         "" \
         "AllNamespaces" \
         "" \
-        ""
+        ""; then
+        log_error "RHCL operator installation failed"
+        return 1
+      fi
 
       # Patch RHCL CSV to recognize OpenShift Gateway controller
       patch_kuadrant_csv_for_gateway "rh-connectivity-link" "rhcl-operator"
@@ -808,14 +905,14 @@ install_policy_engine() {
       ;;
 
     kuadrant)
-      log_info "Installing Kuadrant v1.3.1 (upstream community)"
+      log_info "Installing Kuadrant v1.4.2 (upstream community)"
 
-      # Create custom catalog for upstream Kuadrant v1.3.1
-      # This version provides AuthPolicy v1 API required by ODH
+      # Create custom catalog for upstream Kuadrant v1.4.2
+      # This version provides AuthPolicy v1 API and Authorino v0.23.1
       local kuadrant_catalog="kuadrant-operator-catalog"
       local kuadrant_ns="kuadrant-system"
 
-      log_info "Creating Kuadrant v1.3.1 catalog source..."
+      log_info "Creating Kuadrant v1.4.2 catalog source..."
       kubectl create namespace "$kuadrant_ns" 2>/dev/null || true
 
       cat <<EOF | kubectl apply -f -
@@ -826,7 +923,7 @@ metadata:
   namespace: $kuadrant_ns
 spec:
   sourceType: grpc
-  image: quay.io/kuadrant/kuadrant-operator-catalog:v1.3.1
+  image: quay.io/kuadrant/kuadrant-operator-catalog:v1.4.2
   displayName: Kuadrant Operator Catalog
   publisher: Kuadrant
   updateStrategy:
@@ -850,7 +947,7 @@ EOF
 
       # Install Kuadrant operator from the custom catalog
       # IMPORTANT: source_namespace must match where CatalogSource was created (kuadrant_ns)
-      install_olm_operator \
+      if ! install_olm_operator \
         "kuadrant-operator" \
         "$kuadrant_ns" \
         "$kuadrant_catalog" \
@@ -858,7 +955,10 @@ EOF
         "" \
         "AllNamespaces" \
         "$kuadrant_ns" \
-        ""
+        ""; then
+        log_error "Kuadrant operator installation failed"
+        return 1
+      fi
 
       # Patch Kuadrant CSV to recognize OpenShift Gateway controller
       patch_kuadrant_csv_for_gateway "$kuadrant_ns" "kuadrant-operator"
@@ -935,7 +1035,7 @@ install_primary_operator() {
       log_info "Installing RHOAI v3 operator..."
       # RHOAI operator goes in redhat-ods-operator namespace (not redhat-ods-applications)
       local operator_namespace="redhat-ods-operator"
-      install_olm_operator \
+      if ! install_olm_operator \
         "rhods-operator" \
         "$operator_namespace" \
         "$catalog_source" \
@@ -943,7 +1043,10 @@ install_primary_operator() {
         "" \
         "AllNamespaces" \
         "" \
-        ""
+        ""; then
+        log_error "RHOAI operator installation failed"
+        return 1
+      fi
 
       # Patch CSV with custom operator image if specified
       if [[ -n "$OPERATOR_IMAGE" ]]; then
@@ -973,7 +1076,7 @@ install_primary_operator() {
       [[ "$odh_plan_approval" == "-" ]] && odh_plan_approval=""
 
       log_info "Installing ODH operator..."
-      install_olm_operator \
+      if ! install_olm_operator \
         "opendatahub-operator" \
         "$NAMESPACE" \
         "$catalog_source" \
@@ -981,7 +1084,10 @@ install_primary_operator() {
         "$odh_starting_csv" \
         "AllNamespaces" \
         "openshift-marketplace" \
-        "$odh_plan_approval"
+        "$odh_plan_approval"; then
+        log_error "ODH operator installation failed"
+        return 1
+      fi
 
       # Patch CSV with custom operator image if specified
       if [[ -n "$OPERATOR_IMAGE" ]]; then
@@ -1002,8 +1108,8 @@ apply_custom_resources() {
   # The operator creates CRDs when its CSV becomes active, but there can be a delay.
   # Both CRDs are installed together, so waiting for DataScienceCluster is sufficient.
   log_info "Waiting for operator CRDs to be established..."
-  wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" 180 || {
-    log_error "DataScienceCluster CRD not available - operator may not have installed correctly"
+  wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" "$CRD_TIMEOUT" || {
+    log_error "DataScienceCluster CRD not available - operator may not have installed correctly (timeout: ${CRD_TIMEOUT}s)"
     return 1
   }
 
@@ -1026,15 +1132,17 @@ apply_custom_resources() {
   fi
 
   # Wait for webhook deployment to exist and be ready (ensures service + endpoints are ready)
-  wait_for_resource "deployment" "$webhook_deployment" "$webhook_namespace" 120 || {
-    log_warn "Webhook deployment not found after 120s, proceeding anyway..."
+  wait_for_resource "deployment" "$webhook_deployment" "$webhook_namespace" "$ROLLOUT_TIMEOUT" || {
+    log_error "Webhook deployment not found after ${ROLLOUT_TIMEOUT}s"
+    return 1
   }
 
   # Wait for deployment to be fully ready (replicas available)
   if kubectl get deployment "$webhook_deployment" -n "$webhook_namespace" >/dev/null 2>&1; then
-    kubectl wait --for=condition=Available --timeout=120s \
+    kubectl wait --for=condition=Available --timeout="${ROLLOUT_TIMEOUT}s" \
       deployment/"$webhook_deployment" -n "$webhook_namespace" 2>/dev/null || {
-      log_warn "Webhook deployment not fully ready, proceeding anyway..."
+      log_error "Webhook deployment not fully ready after ${ROLLOUT_TIMEOUT}s"
+      return 1
     }
   fi
 
@@ -1167,7 +1275,12 @@ setup_gateway_api() {
 
   # Create GatewayClass for OpenShift Gateway API controller
   # This enables the built-in Gateway API implementation (OpenShift 4.14+)
-  kubectl apply -f "${data_dir}/gatewayclass.yaml"
+  if kubectl get gatewayclass openshift-default &>/dev/null; then
+    log_debug "GatewayClass openshift-default already exists, skipping creation"
+  else
+    log_info "Creating GatewayClass openshift-default..."
+    kubectl apply -f "${data_dir}/gatewayclass.yaml"
+  fi
 }
 
 # setup_maas_gateway
@@ -1255,8 +1368,13 @@ setup_maas_gateway() {
 
   # Create the Gateway resource using the kustomize manifest
   # This includes both HTTP and HTTPS listeners, required annotations and labels
-  log_info "Creating maas-default-gateway resource (allowing routes from all namespaces)..."
-  
+  if kubectl get gateway maas-default-gateway -n openshift-ingress &>/dev/null; then
+    log_info "Gateway maas-default-gateway already exists in openshift-ingress"
+    log_debug "  Updating Gateway configuration if needed..."
+  else
+    log_info "Creating maas-default-gateway resource (allowing routes from all namespaces)..."
+  fi
+
   local maas_networking_dir="${SCRIPT_DIR}/../deployment/base/networking/maas"
   if [[ -d "$maas_networking_dir" ]]; then
     # Use local kustomize manifest with envsubst for variable substitution
@@ -1288,8 +1406,8 @@ apply_kuadrant_cr() {
   # Wait for Gateway to be Programmed (required before Kuadrant can become ready)
   # This ensures Service Mesh is installed and Gateway API provider is operational
   log_info "Waiting for Gateway to be Programmed (Service Mesh initialization)..."
-  if ! kubectl wait --for=condition=Programmed gateway/maas-default-gateway -n openshift-ingress --timeout=120s 2>/dev/null; then
-    log_warn "Gateway not yet Programmed after 120s - Kuadrant may take longer to become ready"
+  if ! kubectl wait --for=condition=Programmed gateway/maas-default-gateway -n openshift-ingress --timeout="${CUSTOM_CHECK_TIMEOUT}s" 2>/dev/null; then
+    log_warn "Gateway not yet Programmed after ${CUSTOM_CHECK_TIMEOUT}s - Kuadrant may take longer to become ready"
   fi
 
   log_info "Applying Kuadrant custom resource in $namespace..."
@@ -1297,29 +1415,31 @@ apply_kuadrant_cr() {
   local data_dir="${SCRIPT_DIR}/data"
   kubectl apply -f "${data_dir}/kuadrant.yaml" -n "$namespace"
 
-  # Wait for Kuadrant to be ready (initial attempt - 60s)
+  # Wait for Kuadrant to be ready (initial attempt - configurable timeout)
   # If it fails with MissingDependency, restart the operator and retry
   log_info "Waiting for Kuadrant to become ready (initial check)..."
+  local kuadrant_initial_timeout=$((CUSTOM_CHECK_TIMEOUT / 2))  # Use half of standard timeout for initial check
   if ! wait_for_custom_check "Kuadrant ready in $namespace" \
-    "kubectl get kuadrant kuadrant -n $namespace -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True" \
-    60 \
-    5; then
-    
+    "$kuadrant_initial_timeout" \
+    5 -- \
+    bash -c "kubectl get kuadrant kuadrant -n $namespace -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True"; then
+
     # Check if it's a MissingDependency issue
     local kuadrant_reason
     kuadrant_reason=$(kubectl get kuadrant kuadrant -n "$namespace" -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || echo "")
-    
+
     if [[ "$kuadrant_reason" == "MissingDependency" ]]; then
       log_info "Kuadrant shows MissingDependency - restarting operator to re-register Gateway controller..."
       kubectl delete pod -n "$namespace" -l control-plane=controller-manager --force --grace-period=0 2>/dev/null || true
       sleep 15
-      
+
       # Retry waiting for Kuadrant
       log_info "Retrying Kuadrant readiness check after operator restart..."
       wait_for_custom_check "Kuadrant ready in $namespace" \
-        "kubectl get kuadrant kuadrant -n $namespace -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True" \
-        120 \
-        5 || log_warn "Kuadrant not ready yet - AuthPolicy enforcement may fail on model HTTPRoutes"
+        "$CUSTOM_CHECK_TIMEOUT" \
+        5 -- \
+        bash -c "kubectl get kuadrant kuadrant -n $namespace -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null | grep -q True" \
+        || log_warn "Kuadrant not ready yet (timeout: ${CUSTOM_CHECK_TIMEOUT}s) - AuthPolicy enforcement may fail on model HTTPRoutes"
     else
       log_warn "Kuadrant not ready (reason: $kuadrant_reason) - AuthPolicy enforcement may fail"
     fi
@@ -1371,6 +1491,134 @@ patch_operator_csv() {
 #──────────────────────────────────────────────────────────────
 # AUDIENCE CONFIGURATION FOR HYPERSHIFT/ROSA CLUSTERS
 #──────────────────────────────────────────────────────────────
+
+# get_odh_overlay_param
+#   Reads a value from deployment/overlays/odh/params.env.
+get_odh_overlay_param() {
+  local key="$1"
+  local project_root
+  project_root="$(find_project_root)" || return 1
+
+  local params_file="$project_root/deployment/overlays/odh/params.env"
+  [[ -f "$params_file" ]] || return 1
+
+  awk -F= -v key="$key" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$params_file"
+}
+
+resolve_external_oidc_issuer() {
+  local oidc_issuer_url="${OIDC_ISSUER_URL:-}"
+  if [[ -z "$oidc_issuer_url" ]]; then
+    oidc_issuer_url=$(get_odh_overlay_param "oidc-issuer-url" 2>/dev/null || echo "")
+  fi
+
+  if [[ -z "$oidc_issuer_url" || "$oidc_issuer_url" == "https://oidc.example.invalid/realms/maas" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$oidc_issuer_url"
+}
+
+resolve_external_oidc_client_id() {
+  local oidc_client_id="${OIDC_CLIENT_ID:-}"
+  if [[ -z "$oidc_client_id" ]]; then
+    oidc_client_id=$(get_odh_overlay_param "oidc-client-id" 2>/dev/null || echo "")
+  fi
+
+  if [[ -z "$oidc_client_id" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$oidc_client_id"
+}
+
+patch_authpolicy_from_template() {
+  local authpolicy_name="$1"
+  local template_file="$2"
+  local maas_namespace="$3"
+  local oidc_issuer_url="${4:-}"
+  local oidc_client_id="${5:-}"
+
+  local rendered_patch
+  rendered_patch="$(mktemp)"
+
+  sed \
+    -e "s|__MAAS_NAMESPACE__|${maas_namespace}|g" \
+    -e "s|__OIDC_ISSUER_URL__|${oidc_issuer_url}|g" \
+    -e "s|__OIDC_CLIENT_ID__|${oidc_client_id}|g" \
+    "$template_file" > "$rendered_patch"
+
+  kubectl patch authpolicy "$authpolicy_name" -n "$NAMESPACE" --type=merge --patch-file "$rendered_patch"
+  rm -f "$rendered_patch"
+}
+
+# configure_maas_api_authpolicy
+#   Ensures the live maas-api AuthPolicy keeps API key support and, when
+#   enabled, layers external OIDC JWT validation on top.
+configure_maas_api_authpolicy() {
+  log_info "Configuring MaaS API AuthPolicy..."
+
+  local project_root
+  project_root="$(find_project_root)" || {
+    log_error "Could not determine project root for AuthPolicy patching"
+    return 1
+  }
+
+  local authpolicy_name="maas-api-auth-policy"
+  local wait_timeout=120
+  local elapsed=0
+
+  log_info "  Waiting for AuthPolicy '$authpolicy_name' to be created (timeout: ${wait_timeout}s)..."
+  while [[ $elapsed -lt $wait_timeout ]]; do
+    if kubectl get authpolicy "$authpolicy_name" -n "$NAMESPACE" &>/dev/null; then
+      log_info "  Found AuthPolicy '$authpolicy_name'"
+      break
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+
+  if ! kubectl get authpolicy "$authpolicy_name" -n "$NAMESPACE" &>/dev/null; then
+    log_warn "AuthPolicy '$authpolicy_name' not found after ${wait_timeout}s, skipping auth configuration"
+    return 0
+  fi
+
+  log_info "  Annotating AuthPolicy to prevent operator reconciliation..."
+  kubectl annotate authpolicy "$authpolicy_name" -n "$NAMESPACE" \
+    opendatahub.io/managed="false" --overwrite 2>/dev/null || true
+
+  local api_keys_patch="$project_root/scripts/data/maas-api-authpolicy-api-keys-patch.yaml"
+  log_info "  Patching AuthPolicy to ensure API key support..."
+  if ! patch_authpolicy_from_template "$authpolicy_name" "$api_keys_patch" "$NAMESPACE"; then
+    log_error "  Failed to patch AuthPolicy with API key configuration"
+    return 1
+  fi
+
+  if [[ "$EXTERNAL_OIDC" != "true" ]]; then
+    log_info "  External OIDC not enabled, leaving OpenShift auth as the only identity-token path"
+    return 0
+  fi
+
+  local oidc_issuer_url
+  oidc_issuer_url="$(resolve_external_oidc_issuer)" || {
+    log_error "External OIDC requested but no real oidc-issuer-url was configured"
+    return 1
+  }
+
+  local oidc_client_id
+  oidc_client_id="$(resolve_external_oidc_client_id)" || {
+    log_error "External OIDC requested but no oidc-client-id or OIDC_CLIENT_ID was configured"
+    return 1
+  }
+
+  local oidc_patch="$project_root/scripts/data/maas-api-authpolicy-external-oidc-patch.yaml"
+  log_info "  Enabling OIDC JWT validation with issuer: $oidc_issuer_url, clientId: $oidc_client_id"
+  if ! patch_authpolicy_from_template "$authpolicy_name" "$oidc_patch" "$NAMESPACE" "$oidc_issuer_url" "$oidc_client_id"; then
+    log_error "  Failed to patch AuthPolicy with external OIDC configuration"
+    return 1
+  fi
+
+  log_info "  AuthPolicy patched successfully"
+}
 
 # configure_cluster_audience
 #   Configures the AuthPolicy with the correct OIDC audience for the cluster.
@@ -1496,8 +1744,8 @@ configure_tls_backend() {
 
   # Wait for Authorino deployment to be created by Kuadrant operator
   # This is necessary because Kuadrant may not be fully ready yet (timing issue)
-  wait_for_resource "deployment" "authorino" "$authorino_namespace" 180 || {
-    log_warn "Authorino deployment not found, TLS configuration may fail"
+  wait_for_resource "deployment" "authorino" "$authorino_namespace" "$RESOURCE_TIMEOUT" || {
+    log_warn "Authorino deployment not found after ${RESOURCE_TIMEOUT}s, TLS configuration may fail"
   }
 
   # Call TLS configuration script
@@ -1533,7 +1781,7 @@ configure_tls_backend() {
   
   # Wait for Authorino to be ready after restart
   log_info "Waiting for Authorino deployment to be ready..."
-  kubectl rollout status deployment/authorino -n "$authorino_namespace" --timeout=120s 2>/dev/null || log_warn "Authorino rollout status check timed out"
+  kubectl rollout status deployment/authorino -n "$authorino_namespace" --timeout="${ROLLOUT_TIMEOUT}s" 2>/dev/null || log_warn "Authorino rollout status check timed out (timeout: ${ROLLOUT_TIMEOUT}s)"
 
   log_info "TLS backend configuration complete"
 }

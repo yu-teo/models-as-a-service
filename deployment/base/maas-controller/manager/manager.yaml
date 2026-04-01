@@ -33,6 +33,8 @@ spec:
           - --maas-api-namespace=$(MAAS_API_NAMESPACE)
           - --maas-subscription-namespace=$(MAAS_SUBSCRIPTION_NAMESPACE)
           - --cluster-audience=$(CLUSTER_AUDIENCE)
+          - --metadata-cache-ttl=60
+          - --authz-cache-ttl=60
         env:
           - name: GATEWAY_NAME
             value: "maas-default-gateway"

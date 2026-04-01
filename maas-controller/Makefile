@@ -64,9 +64,12 @@ $(BUILD_DIR):
 run: build ##	build and run manager locally
 	$(BUILD_DIR)/$(BINARY_NAME)
 
+TEST_FLAGS ?= -race -coverprofile=coverage.out
 .PHONY: test
-test: tidy ##	run tests
-	go test ./...
+test: tidy ##	run tests with coverage
+	go test $(TEST_FLAGS) ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Test coverage report generated: $(abspath coverage.html)"
 
 .PHONY: tidy
 tidy:
@@ -80,11 +83,11 @@ LINT_FIX ?= false
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ##	run golangci-lint (use LINT_FIX=true to fix lint issues)
 ifeq ($(LINT_FIX),true)
-	$(GOLANGCI_LINT) fmt
-	$(GOLANGCI_LINT) run --fix
+	"$(GOLANGCI_LINT)" fmt
+	"$(GOLANGCI_LINT)" run --fix
 else
-	$(GOLANGCI_LINT) fmt --diff
-	$(GOLANGCI_LINT) run
+	"$(GOLANGCI_LINT)" fmt --diff
+	"$(GOLANGCI_LINT)" run
 endif
 
 .PHONY: generate
