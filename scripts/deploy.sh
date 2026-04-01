@@ -686,13 +686,13 @@ validate_postgres_connection() {
   if [[ ! "$conn" =~ ^postgres(ql)?:// ]]; then
     log_error "Invalid PostgreSQL connection string format"
     log_error "Expected: postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=require"
-    exit 1
+    return 1
   fi
 }
 
 deploy_postgresql() {
   if [[ -n "$POSTGRES_CONNECTION" ]]; then
-    validate_postgres_connection "$POSTGRES_CONNECTION"
+    validate_postgres_connection "$POSTGRES_CONNECTION" || exit 1
     log_info "Using external PostgreSQL connection"
     create_maas_db_config_secret "$NAMESPACE" "$POSTGRES_CONNECTION"
     log_info "Created maas-db-config secret with external connection"
