@@ -505,10 +505,13 @@ run_e2e_tests() {
     local gw_deadline=$((SECONDS + gw_timeout))
     echo "Waiting for gateway to be reachable: ${gw_url} (timeout: ${gw_timeout}s)..."
     while [[ $SECONDS -lt $gw_deadline ]]; do
-        if curl -skS -m 5 "$gw_url" -o /dev/null 2>/dev/null; then
-            echo "✅ Gateway is reachable"
+        local http_code
+        http_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 5 "$gw_url" 2>/dev/null || echo "000")
+        if [[ "$http_code" =~ ^2 ]]; then
+            echo "✅ Gateway is reachable (HTTP $http_code)"
             break
         fi
+        sleep 1
     done
     if [[ $SECONDS -ge $gw_deadline ]]; then
         echo "⚠️  WARNING: Gateway not reachable after ${gw_timeout}s, proceeding anyway (tests may fail)"
