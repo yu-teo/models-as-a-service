@@ -792,6 +792,8 @@ class TestAPIKeyRevocationE2E:
                 f"Key {i} should be rejected within {max_wait}s after bulk revoke, got {r_inf.status_code}: {r_inf.text}"
             )
         print("[bulk-revoke] All 3 keys correctly rejected at gateway after bulk revoke")
+
+
 class TestEphemeralKeyCleanup:
     """Tests for ephemeral API key cleanup (CronJob + internal endpoint).
 
