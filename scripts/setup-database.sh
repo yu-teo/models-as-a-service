@@ -159,7 +159,19 @@ spec:
 EOF
 
 # Create the maas-db-config secret used by maas-api
-DB_CONNECTION_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+# URL-encode the password in case it contains reserved characters (@, :, /, ?, etc.)
+url_encode() {
+  local string="$1" i c
+  for (( i = 0; i < ${#string}; i++ )); do
+    c="${string:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) printf '%s' "$c" ;;
+      *) printf '%%%02X' "'$c" ;;
+    esac
+  done
+}
+ENCODED_PASSWORD=$(url_encode "$POSTGRES_PASSWORD")
+DB_CONNECTION_URL="postgresql://${POSTGRES_USER}:${ENCODED_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
 create_maas_db_config_secret "$NAMESPACE" "$DB_CONNECTION_URL"
 
 echo "  Waiting for PostgreSQL to be ready..."
