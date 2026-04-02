@@ -790,8 +790,8 @@ class TestAPIKeyRevocationE2E:
         # Poll until all revoked keys are rejected at the gateway
         max_wait = 30
         poll_interval = 0.5
-        deadline = time.monotonic() + max_wait
         for i, k in enumerate(keys):
+            deadline = time.monotonic() + max_wait
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
