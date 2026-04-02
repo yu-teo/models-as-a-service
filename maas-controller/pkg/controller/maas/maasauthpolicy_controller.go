@@ -140,8 +140,8 @@ func authzCacheKeySelector(ns, name string) string {
 //+kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// Secrets and events RBAC is granted via a namespace-scoped Role (secret_reader_role.yaml)
+// restricted to resourceNames: ["maas-db-config"] in the MaaS API namespace.
 
 // Reconcile is part of the main kubernetes reconciliation loop
 const maasAuthPolicyFinalizer = "maas.opendatahub.io/authpolicy-cleanup"
