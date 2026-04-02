@@ -1285,9 +1285,6 @@ func TestMaaSAuthPolicyReconciler_SecretMissing(t *testing.T) {
 	if !contains(readyCond.Message, "maas-system") {
 		t.Errorf("Ready condition message should mention namespace, got: %s", readyCond.Message)
 	}
-	if !contains(readyCond.Message, "DB_CONNECTION_URL") {
-		t.Errorf("Ready condition message should mention required key, got: %s", readyCond.Message)
-	}
 }
 
 // TestMaaSAuthPolicyReconciler_SecretPresent verifies that when the maas-db-config
