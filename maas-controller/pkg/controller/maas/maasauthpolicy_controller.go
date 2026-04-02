@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -34,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,6 +70,9 @@ type MaaSAuthPolicyReconciler struct {
 	// AuthzCacheTTL is the TTL in seconds for Authorino OPA authorization caching.
 	// Applies to auth-valid, subscription-valid, and require-group-membership authorization evaluators.
 	AuthzCacheTTL int64
+
+	// Recorder emits Kubernetes events on MaaSAuthPolicy resources.
+	Recorder record.EventRecorder
 }
 
 func (r *MaaSAuthPolicyReconciler) clusterAudience() string {
@@ -135,6 +140,8 @@ func authzCacheKeySelector(ns, name string) string {
 //+kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop
 const maasAuthPolicyFinalizer = "maas.opendatahub.io/authpolicy-cleanup"
@@ -164,6 +171,10 @@ func (r *MaaSAuthPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	statusSnapshot := policy.Status.DeepCopy()
+
+	if ok, err := r.checkMaaSDBConfigSecret(ctx, log, policy, statusSnapshot); !ok {
+		return ctrl.Result{}, err
+	}
 
 	refs, err := r.reconcileModelAuthPolicies(ctx, log, policy)
 	if err != nil {
@@ -836,6 +847,49 @@ func (r *MaaSAuthPolicyReconciler) updateStatus(ctx context.Context, policy *maa
 		log := logr.FromContextOrDiscard(ctx)
 		log.Error(err, "failed to update MaaSAuthPolicy status", "name", policy.Name)
 	}
+}
+
+// checkMaaSDBConfigSecret verifies that the maas-db-config secret exists in the MaaS API namespace.
+// If missing, it updates the policy status with a descriptive message and emits a Warning event.
+// Returns (true, nil) when the secret exists and reconciliation should continue.
+// Returns (false, nil) when the secret is missing (status updated, no requeue error).
+// Returns (false, err) for unexpected API errors (triggers requeue).
+func (r *MaaSAuthPolicyReconciler) checkMaaSDBConfigSecret(
+	ctx context.Context, log logr.Logger,
+	policy *maasv1alpha1.MaaSAuthPolicy,
+	statusSnapshot *maasv1alpha1.MaaSAuthPolicyStatus,
+) (bool, error) {
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Namespace: r.MaaSAPINamespace,
+		Name:      "maas-db-config",
+	}, secret)
+
+	if err == nil {
+		return true, nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		return false, fmt.Errorf("failed to check prerequisite secret maas-db-config: %w", err)
+	}
+
+	msg := fmt.Sprintf(
+		"Required secret 'maas-db-config' not found in namespace '%s'. "+
+			"Create the secret with DB_CONNECTION_URL key. "+
+			"See: https://docs.redhat.com/maas/prerequisites",
+		r.MaaSAPINamespace,
+	)
+	log.Info("prerequisite missing: maas-db-config secret not found",
+		"namespace", r.MaaSAPINamespace)
+
+	if r.Recorder != nil {
+		r.Recorder.Event(policy, corev1.EventTypeWarning, "PrerequisiteMissing",
+			"Required secret 'maas-db-config' not found. "+
+				"maas-api requires this secret for database connectivity.")
+	}
+
+	r.updateStatus(ctx, policy, "Failed", msg, statusSnapshot)
+	return false, nil
 }
 
 // ValidateCacheTTLs validates that cache TTL configuration is valid.
