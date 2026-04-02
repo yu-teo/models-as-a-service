@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -100,7 +101,7 @@ func TestMaaSAuthPolicyReconciler_ManagedAnnotation(t *testing.T) {
 			c := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithRESTMapper(testRESTMapper()).
-				WithObjects(model, route, maasPolicy, existingAP).
+				WithObjects(model, route, maasPolicy, existingAP, newMaaSDBConfigSecret("maas-system")).
 				WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 				Build()
 
@@ -156,7 +157,7 @@ func TestMaaSAuthPolicyReconciler_DuplicateReconciliation(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(model, route, policyA, policyB).
+		WithObjects(model, route, policyA, policyB, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -240,7 +241,7 @@ func TestMaaSAuthPolicyReconciler_DeleteAnnotation(t *testing.T) {
 			c := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithRESTMapper(testRESTMapper()).
-				WithObjects(maasPolicy, existingAP).
+				WithObjects(maasPolicy, existingAP, newMaaSDBConfigSecret("maas-system")).
 				Build()
 
 			// Simulate deletion: the fake client sets DeletionTimestamp while the
@@ -300,7 +301,7 @@ func TestMaaSAuthPolicyReconciler_RemoveModelRef(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(modelRefA, modelRefB, routeA, routeB, maasPolicy).
+		WithObjects(modelRefA, modelRefB, routeA, routeB, maasPolicy, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -381,7 +382,7 @@ func TestMaaSAuthPolicyReconciler_RemoveModelRef_Aggregation(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(modelRefA, modelRefB, routeA, routeB, ap1, ap2).
+		WithObjects(modelRefA, modelRefB, routeA, routeB, ap1, ap2, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -498,7 +499,7 @@ func TestMaaSAuthPolicyReconciler_MultiplePoliciesDeletion(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(model, route, policy1, policy2).
+		WithObjects(model, route, policy1, policy2, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -623,7 +624,7 @@ func TestMaaSAuthPolicyReconciler_CachingConfiguration(t *testing.T) {
 			c := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithRESTMapper(testRESTMapper()).
-				WithObjects(model, route, maasPolicy).
+				WithObjects(model, route, maasPolicy, newMaaSDBConfigSecret("maas-system")).
 				WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 				Build()
 
@@ -804,7 +805,7 @@ func TestMaaSAuthPolicyReconciler_CacheKeyIsolation(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(model, route, maasPolicy).
+		WithObjects(model, route, maasPolicy, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -986,7 +987,7 @@ func TestMaaSAuthPolicyReconciler_CacheKeyModelIsolation(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(model1, route1, policy1, model2, route2, policy2).
+		WithObjects(model1, route1, policy1, model2, route2, policy2, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -1084,7 +1085,7 @@ func TestMaaSAuthPolicyReconciler_NoIdentityHeadersUpstream(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(model, route, maasPolicy).
+		WithObjects(model, route, maasPolicy, newMaaSDBConfigSecret("maas-system")).
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
@@ -1218,6 +1219,178 @@ func TestMaaSAuthPolicyReconciler_NoIdentityHeadersUpstream(t *testing.T) {
 			t.Error("filters.identity.metrics must be true for telemetry to access identity data")
 		}
 	})
+}
+
+// TestMaaSAuthPolicyReconciler_SecretMissing verifies that when the maas-db-config
+// secret is missing, the reconciler sets the status to Failed with a descriptive message.
+func TestMaaSAuthPolicyReconciler_SecretMissing(t *testing.T) {
+	const (
+		modelName      = "llm"
+		namespace      = "default"
+		maasPolicyName = "policy-a"
+	)
+
+	model := newMaaSModelRef(modelName, namespace, "ExternalModel", modelName)
+	route := newHTTPRoute("maas-model-"+modelName, namespace)
+	maasPolicy := newMaaSAuthPolicy(maasPolicyName, namespace, "team-a", maasv1alpha1.ModelRef{Name: modelName, Namespace: namespace})
+
+	// No maas-db-config secret
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRESTMapper(testRESTMapper()).
+		WithObjects(model, route, maasPolicy).
+		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
+		Build()
+
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
+
+	result, err := r.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Reconcile should not return error for missing secret (status update only), got: %v", err)
+	}
+	if result.Requeue {
+		t.Error("Reconcile should not request requeue for missing secret")
+	}
+
+	// Verify status was updated
+	got := &maasv1alpha1.MaaSAuthPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: maasPolicyName, Namespace: namespace}, got); err != nil {
+		t.Fatalf("Get MaaSAuthPolicy: %v", err)
+	}
+
+	if got.Status.Phase != "Failed" {
+		t.Errorf("phase = %q, want %q", got.Status.Phase, "Failed")
+	}
+
+	readyCond := apimeta.FindStatusCondition(got.Status.Conditions, "Ready")
+	if readyCond == nil {
+		t.Fatal("Ready condition not found")
+	}
+	if readyCond.Status != metav1.ConditionFalse {
+		t.Errorf("Ready condition status = %q, want %q", readyCond.Status, metav1.ConditionFalse)
+	}
+	if !contains(readyCond.Message, "maas-db-config") {
+		t.Errorf("Ready condition message should mention maas-db-config, got: %s", readyCond.Message)
+	}
+	if !contains(readyCond.Message, "maas-system") {
+		t.Errorf("Ready condition message should mention namespace, got: %s", readyCond.Message)
+	}
+	if !contains(readyCond.Message, "DB_CONNECTION_URL") {
+		t.Errorf("Ready condition message should mention required key, got: %s", readyCond.Message)
+	}
+}
+
+// TestMaaSAuthPolicyReconciler_SecretPresent verifies that when the maas-db-config
+// secret exists, reconciliation proceeds normally without prerequisite warnings.
+func TestMaaSAuthPolicyReconciler_SecretPresent(t *testing.T) {
+	const (
+		modelName      = "llm"
+		namespace      = "default"
+		httpRouteName  = "maas-model-" + modelName
+		maasPolicyName = "policy-a"
+	)
+
+	model := newMaaSModelRef(modelName, namespace, "ExternalModel", modelName)
+	route := newHTTPRoute(httpRouteName, namespace)
+	maasPolicy := newMaaSAuthPolicy(maasPolicyName, namespace, "team-a", maasv1alpha1.ModelRef{Name: modelName, Namespace: namespace})
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRESTMapper(testRESTMapper()).
+		WithObjects(model, route, maasPolicy, newMaaSDBConfigSecret("maas-system")).
+		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
+		Build()
+
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("Reconcile: unexpected error: %v", err)
+	}
+
+	got := &maasv1alpha1.MaaSAuthPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: maasPolicyName, Namespace: namespace}, got); err != nil {
+		t.Fatalf("Get MaaSAuthPolicy: %v", err)
+	}
+
+	if got.Status.Phase != "Active" {
+		t.Errorf("phase = %q, want %q", got.Status.Phase, "Active")
+	}
+
+	readyCond := apimeta.FindStatusCondition(got.Status.Conditions, "Ready")
+	if readyCond == nil {
+		t.Fatal("Ready condition not found")
+	}
+	if contains(readyCond.Message, "maas-db-config") {
+		t.Errorf("Ready condition message should not mention maas-db-config when secret exists, got: %s", readyCond.Message)
+	}
+}
+
+// TestMaaSAuthPolicyReconciler_SecretCreatedAfterMissing verifies that creating
+// the maas-db-config secret after it was missing clears the warning on next reconcile.
+func TestMaaSAuthPolicyReconciler_SecretCreatedAfterMissing(t *testing.T) {
+	const (
+		modelName      = "llm"
+		namespace      = "default"
+		httpRouteName  = "maas-model-" + modelName
+		maasPolicyName = "policy-a"
+	)
+
+	model := newMaaSModelRef(modelName, namespace, "ExternalModel", modelName)
+	route := newHTTPRoute(httpRouteName, namespace)
+	maasPolicy := newMaaSAuthPolicy(maasPolicyName, namespace, "team-a", maasv1alpha1.ModelRef{Name: modelName, Namespace: namespace})
+
+	// Start without the secret
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRESTMapper(testRESTMapper()).
+		WithObjects(model, route, maasPolicy).
+		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
+		Build()
+
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
+
+	// First reconcile: secret missing → Failed
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("First reconcile: unexpected error: %v", err)
+	}
+
+	got := &maasv1alpha1.MaaSAuthPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: maasPolicyName, Namespace: namespace}, got); err != nil {
+		t.Fatalf("Get MaaSAuthPolicy: %v", err)
+	}
+	if got.Status.Phase != "Failed" {
+		t.Fatalf("after first reconcile: phase = %q, want %q", got.Status.Phase, "Failed")
+	}
+
+	// Create the secret
+	if err := c.Create(context.Background(), newMaaSDBConfigSecret("maas-system")); err != nil {
+		t.Fatalf("Create secret: %v", err)
+	}
+
+	// Second reconcile: secret present → Active
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("Second reconcile: unexpected error: %v", err)
+	}
+
+	got = &maasv1alpha1.MaaSAuthPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: maasPolicyName, Namespace: namespace}, got); err != nil {
+		t.Fatalf("Get MaaSAuthPolicy after secret creation: %v", err)
+	}
+
+	if got.Status.Phase != "Active" {
+		t.Errorf("after second reconcile: phase = %q, want %q", got.Status.Phase, "Active")
+	}
+
+	readyCond := apimeta.FindStatusCondition(got.Status.Conditions, "Ready")
+	if readyCond == nil {
+		t.Fatal("Ready condition not found after second reconcile")
+	}
+	if contains(readyCond.Message, "maas-db-config") {
+		t.Errorf("Ready condition should not mention maas-db-config after secret is created, got: %s", readyCond.Message)
+	}
 }
 
 // contains is a helper to check if a string contains a substring (case-sensitive).

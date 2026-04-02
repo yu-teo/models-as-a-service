@@ -225,6 +225,7 @@ func main() {
 		ClusterAudience:  clusterAudience,
 		MetadataCacheTTL: metadataCacheTTL,
 		AuthzCacheTTL:    authzCacheTTL,
+		Recorder:         mgr.GetEventRecorderFor("maas-authpolicy-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaaSAuthPolicy")
 		os.Exit(1)

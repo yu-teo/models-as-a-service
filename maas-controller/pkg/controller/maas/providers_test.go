@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -87,6 +88,14 @@ func newMaaSSubscription(name, ns, group, modelName string, limit int64) *maasv1
 				{Name: modelName, Namespace: ns, TokenRateLimits: []maasv1alpha1.TokenRateLimit{{Limit: limit, Window: "1m"}}},
 			},
 		},
+	}
+}
+
+// newMaaSDBConfigSecret creates a maas-db-config secret in the given namespace for testing.
+func newMaaSDBConfigSecret(ns string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "maas-db-config", Namespace: ns},
+		Data:       map[string][]byte{"DB_CONNECTION_URL": []byte("postgres://test:test@localhost:5432/maas")},
 	}
 }
 
