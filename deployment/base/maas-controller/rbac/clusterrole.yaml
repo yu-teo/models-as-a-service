@@ -37,3 +37,7 @@ rules:
 - apiGroups: ["networking.istio.io"]
   resources: ["serviceentries", "destinationrules"]
   verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+# Emit Kubernetes events for prerequisite checks and reconciliation status
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
