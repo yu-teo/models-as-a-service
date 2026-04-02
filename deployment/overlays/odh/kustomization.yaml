@@ -132,3 +132,8 @@ replacements:
       name: maas-controller-leader-election-rolebinding
     fieldPaths:
     - subjects.0.namespace
+  - select:
+      kind: RoleBinding
+      name: maas-controller-secret-reader
+    fieldPaths:
+    - subjects.0.namespace
