@@ -19,6 +19,7 @@ package maas
 import (
 	"context"
 	"testing"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -1254,7 +1255,11 @@ func TestMaaSAuthPolicyReconciler_SecretMissing(t *testing.T) {
 		t.Fatalf("Reconcile should not return error for missing secret (status update only), got: %v", err)
 	}
 	if result.Requeue {
-		t.Error("Reconcile should not request requeue for missing secret")
+		t.Error("Reconcile should not set Requeue flag for missing secret")
+	}
+	// First reconcile has no prior Ready condition, so prerequisiteRequeueDelay returns minDelay (5s).
+	if result.RequeueAfter != 5*time.Second {
+		t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, 5*time.Second)
 	}
 
 	// Verify status was updated
