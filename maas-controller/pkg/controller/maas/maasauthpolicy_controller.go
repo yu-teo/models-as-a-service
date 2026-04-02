@@ -913,7 +913,7 @@ func (r *MaaSAuthPolicyReconciler) checkMaaSDBConfigSecret(
 		return false, fmt.Errorf("failed to check prerequisite secret maas-db-config: %w", err)
 	}
 
-	msg := fmt.Sprintf("Required secret 'maas-db-config' not found in namespace '%s'. Create the secret with DB_CONNECTION_URL key.",
+	msg := fmt.Sprintf("Required secret 'maas-db-config' not found in namespace '%s'.",
 		r.MaaSAPINamespace)
 	log.Info("prerequisite missing: maas-db-config secret not found",
 		"namespace", r.MaaSAPINamespace)
