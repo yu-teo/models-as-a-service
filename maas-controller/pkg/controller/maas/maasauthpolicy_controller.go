@@ -73,6 +73,10 @@ type MaaSAuthPolicyReconciler struct {
 
 	// Recorder emits Kubernetes events on MaaSAuthPolicy resources.
 	Recorder record.EventRecorder
+
+	// APIReader is a direct (uncached) client for reading resources that are not
+	// in the controller's informer cache (e.g., secrets with restricted RBAC).
+	APIReader client.Reader
 }
 
 func (r *MaaSAuthPolicyReconciler) clusterAudience() string {
@@ -859,8 +863,12 @@ func (r *MaaSAuthPolicyReconciler) checkMaaSDBConfigSecret(
 	policy *maasv1alpha1.MaaSAuthPolicy,
 	statusSnapshot *maasv1alpha1.MaaSAuthPolicyStatus,
 ) (bool, error) {
+	if r.APIReader == nil {
+		return true, nil
+	}
+
 	secret := &corev1.Secret{}
-	err := r.Get(ctx, types.NamespacedName{
+	err := r.APIReader.Get(ctx, types.NamespacedName{
 		Namespace: r.MaaSAPINamespace,
 		Name:      "maas-db-config",
 	}, secret)

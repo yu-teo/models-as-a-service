@@ -105,7 +105,7 @@ func TestMaaSAuthPolicyReconciler_ManagedAnnotation(t *testing.T) {
 				WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 				Build()
 
-			r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+			r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
 			if _, err := r.Reconcile(context.Background(), req); err != nil {
 				t.Fatalf("Reconcile: unexpected error: %v", err)
@@ -161,7 +161,7 @@ func TestMaaSAuthPolicyReconciler_DuplicateReconciliation(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 	ctx := context.Background()
 
 	// Reconcile policy-a: creates the aggregated AuthPolicy (covering both policy-a and policy-b).
@@ -250,7 +250,7 @@ func TestMaaSAuthPolicyReconciler_DeleteAnnotation(t *testing.T) {
 				t.Fatalf("Delete MaaSAuthPolicy: %v", err)
 			}
 
-			r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+			r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
 			if _, err := r.Reconcile(context.Background(), req); err != nil {
 				t.Fatalf("Reconcile: unexpected error: %v", err)
@@ -305,7 +305,7 @@ func TestMaaSAuthPolicyReconciler_RemoveModelRef(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 	ctx := context.Background()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
 
@@ -386,7 +386,7 @@ func TestMaaSAuthPolicyReconciler_RemoveModelRef_Aggregation(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 	ctx := context.Background()
 
 	// Reconcile both policies to create aggregated AuthPolicies
@@ -503,7 +503,7 @@ func TestMaaSAuthPolicyReconciler_MultiplePoliciesDeletion(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 
 	// Reconcile both policies to create the aggregated AuthPolicy
 	req1 := ctrl.Request{NamespacedName: types.NamespacedName{Name: policy1Name, Namespace: policyNS}}
@@ -634,6 +634,7 @@ func TestMaaSAuthPolicyReconciler_CachingConfiguration(t *testing.T) {
 				MaaSAPINamespace: "maas-system",
 				MetadataCacheTTL: tc.metadataTTL,
 				AuthzCacheTTL:    tc.authzTTL,
+				APIReader:        c,
 			}
 
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
@@ -815,6 +816,7 @@ func TestMaaSAuthPolicyReconciler_CacheKeyIsolation(t *testing.T) {
 		MaaSAPINamespace: "maas-system",
 		MetadataCacheTTL: 60,
 		AuthzCacheTTL:    60,
+		APIReader:        c,
 	}
 
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
@@ -997,6 +999,7 @@ func TestMaaSAuthPolicyReconciler_CacheKeyModelIsolation(t *testing.T) {
 		MaaSAPINamespace: "maas-system",
 		MetadataCacheTTL: 60,
 		AuthzCacheTTL:    60,
+		APIReader:        c,
 	}
 
 	// Reconcile both policies
@@ -1095,6 +1098,7 @@ func TestMaaSAuthPolicyReconciler_NoIdentityHeadersUpstream(t *testing.T) {
 		MaaSAPINamespace: "maas-system",
 		MetadataCacheTTL: 60,
 		AuthzCacheTTL:    60,
+		APIReader:        c,
 	}
 
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
@@ -1242,7 +1246,7 @@ func TestMaaSAuthPolicyReconciler_SecretMissing(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
 
 	result, err := r.Reconcile(context.Background(), req)
@@ -1302,7 +1306,7 @@ func TestMaaSAuthPolicyReconciler_SecretPresent(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
 
 	if _, err := r.Reconcile(context.Background(), req); err != nil {
@@ -1349,7 +1353,7 @@ func TestMaaSAuthPolicyReconciler_SecretCreatedAfterMissing(t *testing.T) {
 		WithStatusSubresource(&maasv1alpha1.MaaSAuthPolicy{}).
 		Build()
 
-	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system"}
+	r := &MaaSAuthPolicyReconciler{Client: c, Scheme: scheme, MaaSAPINamespace: "maas-system", APIReader: c}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: maasPolicyName, Namespace: namespace}}
 
 	// First reconcile: secret missing → Failed
