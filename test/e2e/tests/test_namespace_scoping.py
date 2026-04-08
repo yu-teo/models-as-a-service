@@ -113,8 +113,13 @@ def _delete_cr(kind: str, name: str, namespace: str):
     )
 
 
-def _create_external_model(name: str, namespace: str, provider: str = "test", endpoint: str = "test.example.com"):
-    """Create an ExternalModel CR with the given name and namespace."""
+def _create_external_model(name: str, 
+                           namespace: str, 
+                           provider: str = "test", 
+                           endpoint: str = "test.example.com", 
+                           target_model: Optional[str] = None):
+    """ Create an ExternalModel CR with the given name and namespace.
+    Note: targetModel is required by the ExternalModel CRD. """
     _apply_cr({
         "apiVersion": "maas.opendatahub.io/v1alpha1",
         "kind": "ExternalModel",
@@ -123,6 +128,7 @@ def _create_external_model(name: str, namespace: str, provider: str = "test", en
             "provider": provider,
             "endpoint": endpoint,
             "credentialRef": {"name": f"{name}-credentials"},
+            "targetModel": target_model or name
         },
     })
 
