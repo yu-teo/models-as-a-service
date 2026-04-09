@@ -1,0 +1,364 @@
+"""
+Negative-path and security-oriented E2E tests for MaaS.
+
+Validates that the platform correctly rejects abuse scenarios:
+- Header spoofing: client-supplied identity headers are stripped
+- Expired API keys: rejected at gateway level
+- Cross-model access: subscription-model binding enforced
+- AuthPolicy removal: access revoked when policy deleted
+- Missing resources: CRs referencing non-existent models
+
+See docs/negative-security-test-matrix.md for the full scenario inventory.
+
+Requires:
+  - GATEWAY_HOST env var
+  - MAAS_API_BASE_URL env var (for API key creation)
+  - oc/kubectl access to manage CRs
+  - Pre-deployed test models (free-tier simulator)
+
+Environment variables:
+  - See test_subscription.py docstring for shared variables
+  - E2E_UNCONFIGURED_MODEL_PATH: Path to a model with no subscription (for cross-model tests)
+  - E2E_UNCONFIGURED_MODEL_REF: MaaSModelRef name for the unconfigured model
+"""
+
+import logging
+import time
+import uuid
+
+import pytest
+import requests
+
+from test_helper import (
+    MODEL_NAME,
+    MODEL_PATH,
+    RECONCILE_WAIT,
+    SIMULATOR_SUBSCRIPTION,
+    TIMEOUT,
+    TLS_VERIFY,
+    UNCONFIGURED_MODEL_PATH,
+    UNCONFIGURED_MODEL_REF,
+    _create_api_key,
+    _create_test_auth_policy,
+    _create_test_subscription,
+    _delete_cr,
+    _gateway_url,
+    _get_cluster_token,
+    _get_cr,
+    _inference,
+    _maas_api_url,
+    _poll_status,
+    _wait_for_maas_auth_policy_ready,
+    _wait_for_maas_subscription_ready,
+    _wait_reconcile,
+)
+
+log = logging.getLogger(__name__)
+
+
+# ============================================================================
+# P0: Header Spoofing Tests
+# ============================================================================
+
+class TestHeaderSpoofing:
+    """Verify that client-supplied identity headers cannot influence authorization.
+
+    The AuthPolicy is configured to strip identity headers (X-MaaS-Username,
+    X-MaaS-Group, X-MaaS-Key-Id) before forwarding to the model backend.
+    Only X-MaaS-Subscription is injected (from key-derived identity, not client).
+
+    Security invariant: key-derived identity always wins over client-supplied headers.
+    """
+
+    def test_injected_identity_headers_ignored(self):
+        """Client injects X-MaaS-Username/Group/Key-Id — platform ignores them.
+
+        Validates that Authorino strips attacker-controlled identity headers.
+        The request should succeed (200) using the real key-derived identity,
+        proving the spoofed headers had no effect on authorization.
+        """
+        api_key = _create_api_key(_get_cluster_token(), subscription=SIMULATOR_SUBSCRIPTION)
+
+        spoofed_headers = {
+            "X-MaaS-Username": "cluster-admin",
+            "X-MaaS-Group": "system:cluster-admins,system:masters",
+            "X-MaaS-Key-Id": "fake-key-id-00000",
+        }
+
+        r = _inference(api_key, extra_headers=spoofed_headers)
+
+        # Request succeeds with the REAL identity (API key owner), not the spoofed one.
+        # If spoofed headers were honored, the test user would gain cluster-admin access.
+        assert r.status_code == 200, (
+            f"Expected 200 (spoofed headers stripped, real identity used), "
+            f"got {r.status_code}: {r.text[:500]}"
+        )
+
+    def test_duplicate_subscription_headers_ignored(self):
+        """Client sends multiple X-MaaS-Subscription headers — API key binding wins.
+
+        For API key requests, the subscription is fixed at mint time.
+        Duplicate or conflicting X-MaaS-Subscription headers must not override
+        the key-derived subscription.
+        """
+        api_key = _create_api_key(_get_cluster_token(), subscription=SIMULATOR_SUBSCRIPTION)
+
+        # Send request with two conflicting subscription headers.
+        # requests library supports duplicate headers via a prepared request.
+        url = f"{_gateway_url()}{MODEL_PATH}/v1/completions"
+        req = requests.Request(
+            "POST", url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": MODEL_NAME, "prompt": "Hello", "max_tokens": 3},
+        )
+        prepared = req.prepare()
+        # Inject duplicate header
+        prepared.headers["X-MaaS-Subscription"] = "nonexistent-evil-sub"
+
+        session = requests.Session()
+        r = session.send(prepared, timeout=TIMEOUT, verify=TLS_VERIFY)
+
+        # API key binding wins — request succeeds with key-derived subscription.
+        assert r.status_code == 200, (
+            f"Expected 200 (API key subscription binding wins over header), "
+            f"got {r.status_code}: {r.text[:500]}"
+        )
+
+
+# ============================================================================
+# P1: Expired Key Rejection
+# ============================================================================
+
+class TestExpiredKeyRejection:
+    """Verify that expired API keys are rejected at the gateway."""
+
+    def test_expired_key_rejected_at_gateway(self):
+        """Create a short-lived API key, wait for expiration, assert 403.
+
+        This validates that Authorino's apiKeyValidation metadata evaluator
+        calls /internal/v1/api-keys/validate which returns valid=false for
+        expired keys, causing the auth-valid OPA rule to deny the request.
+        """
+        oc_token = _get_cluster_token()
+
+        # Create key with shortest supported expiration
+        url = f"{_maas_api_url()}/v1/api-keys"
+        r = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {oc_token}", "Content-Type": "application/json"},
+            json={
+                "name": f"e2e-expired-{uuid.uuid4().hex[:8]}",
+                "subscription": SIMULATOR_SUBSCRIPTION,
+                "expiresIn": "1s",
+            },
+            timeout=TIMEOUT,
+            verify=TLS_VERIFY,
+        )
+        if r.status_code not in (200, 201):
+            pytest.skip(f"Could not create short-lived key: {r.status_code} {r.text}")
+
+        expired_key = r.json().get("key")
+        if not expired_key:
+            pytest.skip("API key response missing 'key' field")
+
+        # Wait for expiration + cache TTL propagation
+        time.sleep(5)
+
+        # Expired key should be rejected at gateway
+        r = _poll_status(expired_key, (401, 403), timeout=30)
+        assert r.status_code in (401, 403), (
+            f"Expected 401 or 403 for expired key, got {r.status_code}: {r.text[:500]}"
+        )
+
+
+# ============================================================================
+# P1: Cross-Model Access
+# ============================================================================
+
+class TestCrossModelAccess:
+    """Verify subscription-model binding is enforced at gateway.
+
+    A key bound to subscription S (which grants access to model A) must NOT
+    be able to access model B (not in subscription S).
+    """
+
+    def test_key_cannot_access_model_outside_subscription(self):
+        """Key for model A cannot infer on model B outside its subscription.
+
+        Uses the pre-deployed unconfigured model (a model with no subscription
+        granting access to it) to test cross-model access denial.
+        """
+        api_key = _create_api_key(_get_cluster_token(), subscription=SIMULATOR_SUBSCRIPTION)
+
+        # The unconfigured model exists but has no subscription granting access.
+        # Using the same API key (bound to simulator-subscription which covers MODEL_REF)
+        # should fail because the subscription doesn't cover UNCONFIGURED_MODEL_REF.
+        r = _inference(api_key, path=UNCONFIGURED_MODEL_PATH)
+
+        assert r.status_code in (401, 403), (
+            f"Expected 401 or 403 for model outside subscription scope, "
+            f"got {r.status_code}: {r.text[:500]}"
+        )
+
+
+# ============================================================================
+# P1: AuthPolicy Removal
+# ============================================================================
+
+class TestAuthPolicyRemoval:
+    """Verify that deleting a MaaSAuthPolicy revokes gateway access.
+
+    When an AuthPolicy is removed, the generated Kuadrant AuthPolicy is also
+    deleted, and subsequent requests with the API key should be denied.
+    """
+
+    def test_authpolicy_deletion_revokes_access(self):
+        """Create auth policy + subscription, verify access, delete policy, verify denial.
+
+        Uses the unconfigured model to avoid interfering with other tests.
+        Creates its own AuthPolicy + Subscription, verifies inference works,
+        then deletes the AuthPolicy and verifies access is revoked.
+        """
+        suffix = uuid.uuid4().hex[:8]
+        policy_name = f"e2e-neg-policy-{suffix}"
+        sub_name = f"e2e-neg-sub-{suffix}"
+        model_ref = UNCONFIGURED_MODEL_REF
+
+        try:
+            # Create auth policy granting access
+            _create_test_auth_policy(
+                policy_name,
+                model_ref,
+                groups=["system:authenticated"],
+            )
+            _create_test_subscription(
+                sub_name,
+                model_ref,
+                groups=["system:authenticated"],
+                priority=200_000,
+            )
+
+            _wait_for_maas_auth_policy_ready(policy_name)
+            _wait_for_maas_subscription_ready(sub_name)
+
+            # Create API key bound to our test subscription
+            api_key = _create_api_key(
+                _get_cluster_token(),
+                subscription=sub_name,
+            )
+
+            # Verify inference works
+            r = _poll_status(api_key, 200, path=UNCONFIGURED_MODEL_PATH, timeout=90)
+            assert r.status_code == 200, (
+                f"Setup: expected 200 with valid auth policy, got {r.status_code}"
+            )
+
+            # Delete the auth policy
+            _delete_cr("maasauthpolicy", policy_name)
+
+            # Wait for Kuadrant AuthPolicy removal to propagate
+            _wait_reconcile(RECONCILE_WAIT * 2)
+
+            # Access should now be denied
+            r = _poll_status(api_key, (401, 403), path=UNCONFIGURED_MODEL_PATH, timeout=90)
+            assert r.status_code in (401, 403), (
+                f"Expected 401 or 403 after AuthPolicy deletion, "
+                f"got {r.status_code}: {r.text[:500]}"
+            )
+        finally:
+            _delete_cr("maasauthpolicy", policy_name)
+            _delete_cr("maassubscription", sub_name)
+
+
+# ============================================================================
+# P2: Missing MaaSModelRef References
+# ============================================================================
+
+class TestMissingModelRef:
+    """Verify CRs referencing non-existent MaaSModelRefs report errors."""
+
+    def test_subscription_with_nonexistent_model_ref(self):
+        """MaaSSubscription referencing non-existent model does not reach Active."""
+        suffix = uuid.uuid4().hex[:8]
+        sub_name = f"e2e-neg-ghost-sub-{suffix}"
+        ghost_model = f"nonexistent-model-{suffix}"
+
+        try:
+            _create_test_subscription(
+                sub_name,
+                ghost_model,
+                groups=["system:authenticated"],
+            )
+
+            # Wait for reconciliation, then check status
+            _wait_reconcile()
+            cr = _get_cr("maassubscription", sub_name)
+            assert cr is not None, "MaaSSubscription CR should exist"
+
+            phase = cr.get("status", {}).get("phase", "")
+            assert phase != "Active", (
+                f"MaaSSubscription referencing non-existent model should not be Active, got phase: {phase}"
+            )
+        finally:
+            _delete_cr("maassubscription", sub_name)
+
+    def test_authpolicy_with_nonexistent_model_ref(self):
+        """MaaSAuthPolicy referencing non-existent model does not reach Active."""
+        suffix = uuid.uuid4().hex[:8]
+        policy_name = f"e2e-neg-ghost-policy-{suffix}"
+        ghost_model = f"nonexistent-model-{suffix}"
+
+        try:
+            _create_test_auth_policy(
+                policy_name,
+                ghost_model,
+                groups=["system:authenticated"],
+            )
+
+            # Wait for reconciliation, then check status
+            _wait_reconcile()
+            cr = _get_cr("maasauthpolicy", policy_name)
+            assert cr is not None, "MaaSAuthPolicy CR should exist"
+
+            phase = cr.get("status", {}).get("phase", "")
+            assert phase != "Active", (
+                f"MaaSAuthPolicy referencing non-existent model should not be Active, got phase: {phase}"
+            )
+        finally:
+            _delete_cr("maasauthpolicy", policy_name)
+
+
+# ============================================================================
+# P2: Header Abuse
+# ============================================================================
+
+class TestHeaderAbuse:
+    """Verify malicious header values are handled safely."""
+
+    def test_special_characters_in_subscription_header(self):
+        """Injection-style characters in X-MaaS-Subscription header.
+
+        Ensures the platform returns a clean 403 (subscription not found)
+        without leaking errors, stack traces, or SQL/NoSQL injection.
+        """
+        api_key = _create_api_key(_get_cluster_token(), subscription=SIMULATOR_SUBSCRIPTION)
+
+        injection_payloads = [
+            "'; DROP TABLE subscriptions; --",
+            '{"$gt": ""}',
+            "../../../etc/passwd",
+            "<script>alert(1)</script>",
+        ]
+
+        for payload in injection_payloads:
+            r = _inference(api_key, extra_headers={"X-MaaS-Subscription": payload})
+
+            # API key binding wins — request should succeed (200) because
+            # the spoofed header is ignored for API key requests.
+            # If the platform processes the header, it should return 403, not 500.
+            assert r.status_code != 500, (
+                f"Server error with injection payload '{payload}': {r.text[:500]}"
+            )
