@@ -200,7 +200,12 @@ def _apply_cr(cr_dict):
 
 def _delete_cr(kind, name, namespace=None):
     namespace = namespace or _ns()
-    subprocess.run(["oc", "delete", kind, name, "-n", namespace, "--ignore-not-found", "--timeout=30s"], capture_output=True, text=True)
+    result = subprocess.run(
+        ["oc", "delete", kind, name, "-n", namespace, "--ignore-not-found", "--timeout=30s"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        log.warning("Failed to delete %s/%s in %s: %s", kind, name, namespace, result.stderr.strip())
 
 
 def _is_transient_kubectl_error(stderr):
