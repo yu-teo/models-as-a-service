@@ -128,7 +128,8 @@ def _get_cluster_token():
             raise RuntimeError("Could not get cluster token via `oc whoami -t`; run with oc login first")
     claims = _decode_jwt_payload(token)
     if claims:
-        log.info("Token claims (decoded): %s", json.dumps(claims, indent=2))
+        safe_keys = {k: v for k, v in claims.items() if k in ("iss", "aud", "exp", "iat")}
+        log.debug("Token claims (non-sensitive): %s", json.dumps(safe_keys))
     return token
 
 
