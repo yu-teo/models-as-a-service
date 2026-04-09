@@ -155,7 +155,7 @@ pytest tests/test_negative_security.py -v
 - MaaSAuthPolicy referencing non-existent model does not reach Active
 - Special characters / injection payloads in `X-MaaS-Subscription` header handled safely
 
-These tests validate the platform's security invariants. See [negative-security-test-matrix.md](docs/negative-security-test-matrix.md) for the full scenario inventory.
+These tests validate the platform's security invariants.
 
 ### Namespace Scoping Tests
 
