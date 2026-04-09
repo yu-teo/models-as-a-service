@@ -396,8 +396,8 @@ def _poll_status(api_key, expected, path=None, extra_headers=None, model_name=No
             last_err = exc
             log.debug(f"Transient request error while polling: {exc}")
         except Exception as exc:
-            last_err = exc
-            log.warning(f"Unexpected error while polling: {exc}")
+            log.exception(f"Non-transient error while polling, failing fast: {exc}")
+            raise
         time.sleep(poll_interval)
     exp_str = expected if isinstance(expected, int) else " or ".join(str(e) for e in expected)
     err_msg = f"Expected {exp_str} within {timeout}s"
