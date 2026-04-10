@@ -99,8 +99,6 @@ from test_helper import (
     _poll_status,
     _revoke_api_key,
     _wait_for_authpolicy_phase,
-    _wait_for_maas_auth_policy_ready,
-    _wait_for_maas_subscription_ready,
     _wait_for_subscription_phase,
     _wait_reconcile,
 )
@@ -472,7 +470,7 @@ def high_priority_subscription_name_for_api_key_binding():
             groups=["system:authenticated"],
             priority=_E2E_API_KEY_BINDING_HIGH_PRIORITY,
         )
-        _wait_for_maas_subscription_ready(name, ns, timeout=90)
+        _wait_for_subscription_phase(name, namespace=ns, timeout=90)
         yield name
     finally:
         _delete_cr("maassubscription", name)
@@ -1016,7 +1014,7 @@ class TestOrderingEdgeCases:
                 },
             })
             _wait_reconcile()
-            _wait_for_maas_subscription_ready("e2e-ordering-sub", namespace=ns, timeout=90)
+            _wait_for_subscription_phase("e2e-ordering-sub", namespace=ns, timeout=90)
 
             api_key = _create_api_key(
                 _get_cluster_token(),
@@ -1791,7 +1789,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, MODEL_REF, users=[sa_user])
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
-            _wait_for_maas_auth_policy_ready(auth_name)
+            _wait_for_authpolicy_phase(auth_name)
 
             # Wait for subscription to reach Active phase with populated status
             cr = _wait_for_subscription_phase(subscription_name, "Active", timeout=60)
@@ -2040,8 +2038,8 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, model_name, users=[sa_user])
             _create_test_subscription(subscription_name, model_name, users=[sa_user])
 
-            _wait_for_maas_auth_policy_ready(auth_name)
-            _wait_for_maas_subscription_ready(subscription_name)
+            _wait_for_authpolicy_phase(auth_name)
+            _wait_for_subscription_phase(subscription_name)
 
             # Verify initial Active status
             cr = _get_cr("maassubscription", subscription_name, namespace=ns)

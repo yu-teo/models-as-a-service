@@ -448,14 +448,16 @@ def _wait_reconcile(seconds=None):
     time.sleep(seconds or RECONCILE_WAIT)
 
 
-def _wait_for_subscription_phase(name, expected_phase, namespace=None, timeout=60):
-    """Wait for MaaSSubscription to reach a specific phase with populated status.
+def _wait_for_subscription_phase(name, expected_phase="Active", namespace=None, timeout=30, require_model_statuses=False):
+    """Wait for MaaSSubscription to reach a specific phase.
 
     Args:
         name: Name of the MaaSSubscription
-        expected_phase: Expected phase (e.g., "Active", "Failed", "Degraded")
+        expected_phase: Phase to wait for (default: "Active")
         namespace: Namespace (defaults to _ns())
-        timeout: Maximum wait time in seconds (default: 60)
+        timeout: Maximum wait time in seconds (default: 30)
+        require_model_statuses: If True, also requires modelRefStatuses to be populated
+                                (default: False). Set to True for status reporting tests.
 
     Returns:
         The subscription CR dict when the expected phase is reached
@@ -474,10 +476,10 @@ def _wait_for_subscription_phase(name, expected_phase, namespace=None, timeout=6
             phase = status.get("phase")
             model_statuses = status.get("modelRefStatuses", [])
 
-            # Check if phase matches AND modelRefStatuses is populated
-            if phase == expected_phase and len(model_statuses) > 0:
-                log.info(f"✅ MaaSSubscription {name} reached phase '{expected_phase}' with {len(model_statuses)} model status(es)")
-                return cr
+            if phase == expected_phase:
+                if not require_model_statuses or len(model_statuses) > 0:
+                    log.info(f"MaaSSubscription {name} reached phase '{expected_phase}'")
+                    return cr
             log.debug(f"MaaSSubscription {name}: phase={phase}, modelRefStatuses={len(model_statuses)}")
         time.sleep(2)
 
@@ -490,16 +492,20 @@ def _wait_for_subscription_phase(name, expected_phase, namespace=None, timeout=6
     )
 
 
-def _wait_for_authpolicy_phase(name, expected_phase, namespace=None, timeout=60, require_auth_policies=True):
-    """Wait for MaaSAuthPolicy to reach a specific phase with populated status.
+def _wait_for_authpolicy_phase(name, expected_phase="Active", namespace=None, timeout=60,
+                                require_auth_policies=True, require_enforced=True):
+    """Wait for MaaSAuthPolicy to reach a specific phase.
 
     Args:
         name: Name of the MaaSAuthPolicy
-        expected_phase: Expected phase (e.g., "Active", "Failed", "Degraded")
+        expected_phase: Phase to wait for (default: "Active")
         namespace: Namespace (defaults to _ns())
         timeout: Maximum wait time in seconds (default: 60)
         require_auth_policies: If True, requires authPolicies to be populated (default: True).
                                Set to False for Failed phase with missing models.
+        require_enforced: If True, requires all authPolicies to have accepted=True and
+                          enforced=True (default: True). Only applies when
+                          require_auth_policies is True.
 
     Returns:
         The auth policy CR dict when the expected phase is reached
@@ -518,11 +524,26 @@ def _wait_for_authpolicy_phase(name, expected_phase, namespace=None, timeout=60,
             phase = status.get("phase")
             auth_policies = status.get("authPolicies", [])
 
-            # Check if phase matches, optionally require authPolicies
             if phase == expected_phase:
-                if not require_auth_policies or len(auth_policies) > 0:
-                    log.info(f"✅ MaaSAuthPolicy {name} reached phase '{expected_phase}' with {len(auth_policies)} auth policy status(es)")
+                # No auth policies required — phase match is sufficient
+                if not require_auth_policies:
+                    log.info(f"MaaSAuthPolicy {name} reached phase '{expected_phase}'")
                     return cr
+
+                # Auth policies required — check they exist
+                if len(auth_policies) > 0:
+                    if require_enforced:
+                        all_enforced = all(
+                            ap.get("accepted") == "True" and ap.get("enforced") == "True"
+                            for ap in auth_policies
+                        )
+                        if all_enforced:
+                            log.info(f"MaaSAuthPolicy {name} reached phase '{expected_phase}' and all enforced")
+                            return cr
+                    else:
+                        log.info(f"MaaSAuthPolicy {name} reached phase '{expected_phase}' with {len(auth_policies)} auth policy status(es)")
+                        return cr
+
             log.debug(f"MaaSAuthPolicy {name}: phase={phase}, authPolicies={len(auth_policies)}")
         time.sleep(2)
 
@@ -532,57 +553,4 @@ def _wait_for_authpolicy_phase(name, expected_phase, namespace=None, timeout=60,
     raise TimeoutError(
         f"MaaSAuthPolicy {name} did not reach phase '{expected_phase}' within {timeout}s "
         f"(current: phase={status.get('phase')}, authPolicies={len(status.get('authPolicies', []))})"
-    )
-
-
-def _wait_for_maas_auth_policy_ready(name, namespace=None, timeout=60):
-    """Wait for MaaSAuthPolicy to reach Active phase with enforced AuthPolicies."""
-    namespace = namespace or _ns()
-    deadline = time.time() + timeout
-    log.info(f"Waiting for MaaSAuthPolicy {name} to become Active (timeout: {timeout}s)...")
-
-    while time.time() < deadline:
-        cr = _get_cr("maasauthpolicy", name, namespace)
-        if cr:
-            phase = cr.get("status", {}).get("phase")
-            auth_policies = cr.get("status", {}).get("authPolicies", [])
-            all_enforced = all(
-                ap.get("accepted") == "True" and ap.get("enforced") == "True"
-                for ap in auth_policies
-            )
-            if phase == "Active" and auth_policies and all_enforced:
-                log.info(f"MaaSAuthPolicy {name} is Active and enforced")
-                return
-            log.debug(f"MaaSAuthPolicy {name} phase: {phase}, authPolicies: {len(auth_policies)}, all_enforced: {all_enforced}")
-        time.sleep(2)
-
-    cr = _get_cr("maasauthpolicy", name, namespace)
-    current_phase = cr.get("status", {}).get("phase") if cr else "not found"
-    auth_policies = cr.get("status", {}).get("authPolicies", []) if cr else []
-    raise TimeoutError(
-        f"MaaSAuthPolicy {name} did not become Active/enforced within {timeout}s "
-        f"(current phase: {current_phase}, authPolicies: {len(auth_policies)})"
-    )
-
-
-def _wait_for_maas_subscription_ready(name, namespace=None, timeout=30):
-    """Wait for MaaSSubscription to reach Active phase."""
-    namespace = namespace or _ns()
-    deadline = time.time() + timeout
-    log.info(f"Waiting for MaaSSubscription {name} to become Active (timeout: {timeout}s)...")
-
-    while time.time() < deadline:
-        cr = _get_cr("maassubscription", name, namespace)
-        if cr:
-            phase = cr.get("status", {}).get("phase")
-            if phase == "Active":
-                log.info(f"MaaSSubscription {name} is Active")
-                return
-            log.debug(f"MaaSSubscription {name} phase: {phase}")
-        time.sleep(2)
-
-    cr = _get_cr("maassubscription", name, namespace)
-    current_phase = cr.get("status", {}).get("phase") if cr else "not found"
-    raise TimeoutError(
-        f"MaaSSubscription {name} did not become Active within {timeout}s (current phase: {current_phase})"
     )

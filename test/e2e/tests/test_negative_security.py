@@ -51,8 +51,7 @@ from test_helper import (
     _maas_api_url,
     _poll_status,
     _wait_for_authpolicy_phase,
-    _wait_for_maas_auth_policy_ready,
-    _wait_for_maas_subscription_ready,
+    _wait_for_subscription_phase,
     _wait_reconcile,
 )
 
@@ -270,8 +269,8 @@ class TestAuthPolicyRemoval:
                 priority=200_000,
             )
 
-            _wait_for_maas_auth_policy_ready(policy_name)
-            _wait_for_maas_subscription_ready(sub_name)
+            _wait_for_authpolicy_phase(policy_name)
+            _wait_for_subscription_phase(sub_name)
 
             # Create API key bound to our test subscription
             api_key = _create_api_key(
@@ -342,7 +341,7 @@ class TestMissingModelRef:
                 groups=["system:authenticated"],
             )
 
-            _wait_for_maas_subscription_ready(sub_name)
+            _wait_for_subscription_phase(sub_name)
 
             # CR becomes Active, but no TRLP should exist for the ghost model
             trlp_name = f"maas-trlp-{ghost_model}"
@@ -363,10 +362,10 @@ class TestMissingModelRef:
         namespace — proving the controller doesn't create auth enforcement
         for non-existent models.
 
-        Note: we poll for phase==Active directly instead of using
-        _wait_for_maas_auth_policy_ready(), because that helper also
-        requires authPolicies status entries to be enforced — which won't
-        happen when the referenced model doesn't exist.
+        Note: we use _wait_for_authpolicy_phase with require_auth_policies=False
+        because the default (require_auth_policies=True, require_enforced=True)
+        would timeout — there are no authPolicies status entries when the
+        referenced model doesn't exist.
         """
         suffix = uuid.uuid4().hex[:8]
         policy_name = f"e2e-neg-ghost-policy-{suffix}"
@@ -380,8 +379,7 @@ class TestMissingModelRef:
             )
 
             # Wait for phase==Active only (not enforced authPolicies — there are
-            # none for a ghost model ref, so _wait_for_maas_auth_policy_ready
-            # would timeout).
+            # none for a ghost model ref).
             _wait_for_authpolicy_phase(policy_name, "Active", timeout=30, require_auth_policies=False)
 
             # CR becomes Active, but no Kuadrant AuthPolicy should exist for the ghost model
