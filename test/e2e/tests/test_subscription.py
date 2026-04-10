@@ -33,11 +33,15 @@ Requires:
   - maas-controller deployed with example CRs applied
   - oc/kubectl access to create service account tokens (for API key creation)
 
-Environment variables (all optional, with defaults):
-  - GATEWAY_HOST: Gateway hostname (required)
-  - MAAS_API_BASE_URL: MaaS API URL (required for API key creation)
-  - MAAS_SUBSCRIPTION_NAMESPACE: MaaS CRs namespace (default: models-as-a-service)
-  - E2E_TEST_TOKEN_SA_NAMESPACE, E2E_TEST_TOKEN_SA_NAME: When set, use this SA token
+Environment variables:
+  See test_helper.py module docstring for shared environment variables
+  (GATEWAY_HOST, MAAS_API_BASE_URL, MAAS_SUBSCRIPTION_NAMESPACE, etc.).
+
+  File-specific variables (all optional, with defaults):
+  - E2E_PREMIUM_MODEL_PATH: Gateway path for premium model (default: /llm/premium-simulated-simulated-premium)
+  - E2E_DISTINCT_MODEL_PATH: Gateway path for distinct model (default: /llm/e2e-distinct-simulated)
+  - E2E_DISTINCT_MODEL_2_PATH: Gateway path for second distinct model (default: /llm/e2e-distinct-2-simulated)
+  - E2E_INVALID_SUBSCRIPTION: Invalid subscription name for negative tests (default: nonexistent-sub)
     instead of oc whoami -t (e.g. for Prow where oc whoami -t is unavailable)
   - E2E_TIMEOUT: Request timeout in seconds (default: 30)
   - E2E_RECONCILE_WAIT: Wait time for reconciliation in seconds (default: 8)
@@ -73,11 +77,18 @@ import pytest
 import requests
 
 from test_helper import (
+    DISTINCT_MODEL_2_ID,
+    DISTINCT_MODEL_2_REF,
+    DISTINCT_MODEL_ID,
+    DISTINCT_MODEL_REF,
     MODEL_NAME,
     MODEL_NAMESPACE,
     MODEL_PATH,
     MODEL_REF,
+    PREMIUM_MODEL_REF,
+    PREMIUM_SIMULATOR_SUBSCRIPTION,
     RECONCILE_WAIT,
+    SIMULATOR_ACCESS_POLICY,
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
     TLS_VERIFY,
@@ -89,15 +100,19 @@ from test_helper import (
     _create_test_auth_policy,
     _create_test_subscription,
     _delete_cr,
+    _delete_sa,
     _gateway_url,
+    _get_auth_policies_for_model,
     _get_cluster_token,
     _get_cr,
+    _get_subscriptions_for_model,
     _inference,
-    _is_transient_kubectl_error,
     _maas_api_url,
     _ns,
     _poll_status,
     _revoke_api_key,
+    _sa_to_user,
+    _snapshot_cr,
     _wait_for_authpolicy_phase,
     _wait_for_subscription_phase,
     _wait_reconcile,
@@ -108,17 +123,8 @@ log = logging.getLogger(__name__)
 
 # Constants specific to test_subscription.py (not shared)
 PREMIUM_MODEL_PATH = os.environ.get("E2E_PREMIUM_MODEL_PATH", "/llm/premium-simulated-simulated-premium")
-PREMIUM_MODEL_REF = os.environ.get("E2E_PREMIUM_MODEL_REF", "premium-simulated-simulated-premium")
-DISTINCT_MODEL_REF = os.environ.get("E2E_DISTINCT_MODEL_REF", "e2e-distinct-simulated")
 DISTINCT_MODEL_PATH = os.environ.get("E2E_DISTINCT_MODEL_PATH", "/llm/e2e-distinct-simulated")
-DISTINCT_MODEL_ID = os.environ.get("E2E_DISTINCT_MODEL_ID", "test/e2e-distinct-model")
-DISTINCT_MODEL_2_REF = os.environ.get("E2E_DISTINCT_MODEL_2_REF", "e2e-distinct-2-simulated")
 DISTINCT_MODEL_2_PATH = os.environ.get("E2E_DISTINCT_MODEL_2_PATH", "/llm/e2e-distinct-2-simulated")
-DISTINCT_MODEL_2_ID = os.environ.get("E2E_DISTINCT_MODEL_2_ID", "test/e2e-distinct-model-2")
-PREMIUM_SIMULATOR_SUBSCRIPTION = os.environ.get(
-    "E2E_PREMIUM_SIMULATOR_SUBSCRIPTION", "premium-simulator-subscription"
-)
-SIMULATOR_ACCESS_POLICY = os.environ.get("E2E_SIMULATOR_ACCESS_POLICY", "simulator-access")
 INVALID_SUBSCRIPTION = os.environ.get("E2E_INVALID_SUBSCRIPTION", "nonexistent-sub")
 
 # Generated resource names (for TestManagedAnnotation)
@@ -150,11 +156,6 @@ def _get_default_api_key() -> str:
     return _default_api_key_cache[pid]
 
 
-def _delete_sa(sa_name, namespace=None):
-    namespace = namespace or _ns()
-    subprocess.run(["oc", "delete", "sa", sa_name, "-n", namespace, "--ignore-not-found"], capture_output=True, text=True)
-
-
 def _cr_exists(kind, name, namespace=None):
     namespace = namespace or _ns()
     result = subprocess.run(["oc", "get", kind, name, "-n", namespace], capture_output=True, text=True)
@@ -174,62 +175,6 @@ def _annotate(kind, name, annotation, namespace=None):
         text=True,
         check=True,
     )
-
-
-def _get_auth_policies_for_model(model_ref, namespace=None):
-    """Get all MaaSAuthPolicies that reference a model.
-
-    Args:
-        model_ref: Name of the MaaSModelRef
-        namespace: Namespace to search (defaults to _ns())
-
-    Returns:
-        List of auth policy names that reference the model
-    """
-    namespace = namespace or _ns()
-    policies = _list_crs("maasauthpolicy", namespace)
-
-    matching = []
-    for policy in policies:
-        model_refs = policy.get("spec", {}).get("modelRefs", [])
-        for ref in model_refs:
-            # Handle both string refs and dict refs with 'name' field
-            ref_name = ref.get("name") if isinstance(ref, dict) else ref
-            if ref_name == model_ref:
-                matching.append(policy["metadata"]["name"])
-                break
-    return matching
-
-
-def _get_subscriptions_for_model(model_ref, namespace=None):
-    """Get all MaaSSubscriptions that reference a model.
-
-    Args:
-        model_ref: Name of the MaaSModelRef
-        namespace: Namespace to search (defaults to _ns())
-
-    Returns:
-        List of subscription names that reference the model
-    """
-    namespace = namespace or _ns()
-    subs = _list_crs("maassubscription", namespace)
-
-    matching = []
-    for sub in subs:
-        model_refs = sub.get("spec", {}).get("modelRefs", [])
-        for ref in model_refs:
-            # Handle both string refs and dict refs with 'name' field
-            ref_name = ref.get("name") if isinstance(ref, dict) else ref
-            if ref_name == model_ref:
-                matching.append(sub["metadata"]["name"])
-                break
-    return matching
-
-
-def _sa_to_user(sa_name, namespace=None):
-    """Convert service account name to Kubernetes user principal."""
-    namespace = namespace or _ns()
-    return f"system:serviceaccount:{namespace}:{sa_name}"
 
 
 def _create_test_maas_model(name, llmis_name=MODEL_REF, llmis_namespace=MODEL_NAMESPACE, namespace=None):
@@ -329,81 +274,6 @@ def _wait_for_token_rate_limit_policy(model_ref, model_namespace="llm", timeout=
     raise TimeoutError(
         f"TokenRateLimitPolicy {trlp_name} was not created and enforced in {model_namespace} within {timeout}s"
     )
-
-
-def _snapshot_cr(kind, name, namespace=None):
-    """Capture a CR for later restoration (strips runtime metadata)."""
-    cr = _get_cr(kind, name, namespace)
-    if not cr:
-        return None
-    meta = cr.get("metadata", {})
-    for key in ("resourceVersion", "uid", "creationTimestamp", "generation", "managedFields"):
-        meta.pop(key, None)
-    annotations = meta.get("annotations", {})
-    annotations.pop("kubectl.kubernetes.io/last-applied-configuration", None)
-    if not annotations:
-        meta.pop("annotations", None)
-    cr.pop("status", None)
-    return cr
-
-
-def _list_crs(kind, namespace=None):
-    """List all CRs of a given kind.
-
-    Args:
-        kind: CR kind (e.g., 'maasmodelref', 'maasauthpolicy')
-        namespace: Namespace to search (defaults to _ns())
-
-    Returns:
-        List of CR dictionaries
-
-    Raises:
-        RuntimeError: If kubectl command fails with contextual error details
-    """
-    namespace = namespace or _ns()
-    plural = {
-        "maasmodelref": "maasmodelrefs",
-        "maasauthpolicy": "maasauthpolicies",
-        "maassubscription": "maassubscriptions",
-    }.get(kind, f"{kind}s")
-
-    cmd = ["kubectl", "get", plural, "-n", namespace, "-o", "json"]
-
-    # Retry transient network errors with exponential backoff
-    max_retries = 3
-    retry_delay = 2  # seconds
-
-    for attempt in range(max_retries):
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        if result.returncode == 0:
-            return json.loads(result.stdout).get("items", [])
-
-        # Check if error is transient and we have retries left
-        if attempt < max_retries - 1 and _is_transient_kubectl_error(result.stderr):
-            log.warning(
-                f"Transient kubectl error (attempt {attempt + 1}/{max_retries}): {result.stderr.strip()}"
-            )
-            time.sleep(retry_delay * (attempt + 1))  # exponential backoff
-            continue
-
-        # Final attempt or non-transient error
-        raise RuntimeError(
-            f"Failed to list {plural} in namespace '{namespace}'.\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Exit code: {result.returncode}\n"
-            f"Stderr: {result.stderr}\n"
-            f"Guidance: Ensure the CRD exists, namespace is correct, and you have permissions."
-        )
-
-    # Unreachable: loop always exits via return (line 684) or raise (line 695)
-    # Included for type checker and defensive programming
-    return []
 
 
 # ---------------------------------------------------------------------------

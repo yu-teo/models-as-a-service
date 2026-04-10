@@ -4,11 +4,15 @@ E2E tests for the /v1/models endpoint that validate subscription-aware model fil
 Tests the /v1/models endpoint in maas-api/internal/handlers/models.go which lists
 available models filtered by the user's subscription access.
 
-Requires same environment setup as test_subscription.py:
+Requires:
   - GATEWAY_HOST env var (e.g. maas.apps.cluster.example.com)
   - MAAS_API_BASE_URL env var (e.g. https://maas.apps.cluster.example.com/maas-api)
   - maas-controller deployed with example CRs applied
   - oc/kubectl access to create service account tokens
+
+Environment variables:
+  See test_helper.py module docstring for shared environment variables.
+  This file uses no additional file-specific environment variables.
 """
 
 import json
@@ -20,8 +24,20 @@ import time
 import pytest
 import requests
 
-# Import helpers from test_subscription module
-from test_subscription import (
+from test_helper import (
+    DISTINCT_MODEL_2_ID,
+    DISTINCT_MODEL_2_REF,
+    DISTINCT_MODEL_ID,
+    DISTINCT_MODEL_REF,
+    MODEL_NAMESPACE,
+    MODEL_REF,
+    PREMIUM_MODEL_REF,
+    PREMIUM_SIMULATOR_SUBSCRIPTION,
+    SIMULATOR_ACCESS_POLICY,
+    SIMULATOR_SUBSCRIPTION,
+    TIMEOUT,
+    TLS_VERIFY,
+    UNCONFIGURED_MODEL_REF,
     _apply_cr,
     _create_api_key,
     _create_sa_token,
@@ -39,19 +55,6 @@ from test_subscription import (
     _wait_for_authpolicy_phase,
     _wait_for_subscription_phase,
     _wait_reconcile,
-    DISTINCT_MODEL_ID,
-    DISTINCT_MODEL_REF,
-    DISTINCT_MODEL_2_ID,
-    DISTINCT_MODEL_2_REF,
-    MODEL_NAMESPACE,
-    MODEL_REF,
-    PREMIUM_MODEL_REF,
-    PREMIUM_SIMULATOR_SUBSCRIPTION,
-    UNCONFIGURED_MODEL_REF,
-    SIMULATOR_ACCESS_POLICY,
-    SIMULATOR_SUBSCRIPTION,
-    TIMEOUT,
-    TLS_VERIFY,
 )
 
 log = logging.getLogger(__name__)

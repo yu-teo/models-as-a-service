@@ -15,9 +15,9 @@ Requires:
   - Pre-deployed test models (free-tier simulator)
 
 Environment variables:
-  - See test_subscription.py docstring for shared variables
-  - E2E_UNCONFIGURED_MODEL_PATH: Path to a model with no subscription (for cross-model tests)
-  - E2E_UNCONFIGURED_MODEL_REF: MaaSModelRef name for the unconfigured model
+  See test_helper.py module docstring for shared environment variables
+  (GATEWAY_HOST, MAAS_API_BASE_URL, MAAS_SUBSCRIPTION_NAMESPACE, etc.).
+  This file uses no additional file-specific environment variables.
 """
 
 import http.client

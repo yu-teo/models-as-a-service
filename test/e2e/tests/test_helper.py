@@ -5,10 +5,33 @@ This module centralizes common utilities used across multiple test files:
 - Environment-based constants (timeouts, model refs, namespaces)
 - Cluster authentication (OC tokens, service account tokens)
 - API key management (create, revoke)
-- Custom Resource management (apply, delete, get)
+- Custom Resource management (apply, delete, get, list, snapshot)
 - Inference helpers (send requests, poll for expected status)
-- Wait/polling utilities (reconciliation, CR readiness)
+- Wait/polling utilities (reconciliation, CR readiness, phase checks)
 - CR creation helpers (MaaSAuthPolicy, MaaSSubscription)
+
+Environment variables (all optional unless noted):
+  - GATEWAY_HOST: Gateway hostname (required)
+  - MAAS_API_BASE_URL: MaaS API URL (auto-derived from GATEWAY_HOST if not set)
+  - MAAS_SUBSCRIPTION_NAMESPACE: MaaS CRs namespace (default: models-as-a-service)
+  - E2E_TEST_TOKEN_SA_NAMESPACE, E2E_TEST_TOKEN_SA_NAME: SA token source for Prow
+  - E2E_TIMEOUT: Request timeout in seconds (default: 45)
+  - E2E_RECONCILE_WAIT: Wait time for reconciliation in seconds (default: 8)
+  - E2E_SKIP_TLS_VERIFY: Set to "true" to skip TLS verification
+  - E2E_MODEL_PATH: Path to free model (default: /llm/facebook-opt-125m-simulated)
+  - E2E_MODEL_NAME: Model name for API requests (default: facebook/opt-125m)
+  - E2E_MODEL_REF: Model ref for CRs (default: facebook-opt-125m-simulated)
+  - E2E_MODEL_NAMESPACE: Namespace where models live (default: llm)
+  - E2E_SIMULATOR_SUBSCRIPTION: Free-tier subscription (default: simulator-subscription)
+  - E2E_PREMIUM_MODEL_REF: Premium model ref (default: premium-simulated-simulated-premium)
+  - E2E_PREMIUM_SIMULATOR_SUBSCRIPTION: Premium subscription (default: premium-simulator-subscription)
+  - E2E_SIMULATOR_ACCESS_POLICY: Simulator auth policy name (default: simulator-access)
+  - E2E_UNCONFIGURED_MODEL_REF: Unconfigured model ref (default: e2e-unconfigured-facebook-opt-125m-simulated)
+  - E2E_UNCONFIGURED_MODEL_PATH: Path to unconfigured model (default: /llm/e2e-unconfigured-facebook-opt-125m-simulated)
+  - E2E_DISTINCT_MODEL_REF: First distinct model ref (default: e2e-distinct-simulated)
+  - E2E_DISTINCT_MODEL_ID: Model ID for first distinct model (default: test/e2e-distinct-model)
+  - E2E_DISTINCT_MODEL_2_REF: Second distinct model ref (default: e2e-distinct-2-simulated)
+  - E2E_DISTINCT_MODEL_2_ID: Model ID for second distinct model (default: test/e2e-distinct-model-2)
 """
 
 import base64
@@ -36,8 +59,15 @@ MODEL_NAME = os.environ.get("E2E_MODEL_NAME", "facebook/opt-125m")
 MODEL_REF = os.environ.get("E2E_MODEL_REF", "facebook-opt-125m-simulated")
 MODEL_NAMESPACE = os.environ.get("E2E_MODEL_NAMESPACE", "llm")
 SIMULATOR_SUBSCRIPTION = os.environ.get("E2E_SIMULATOR_SUBSCRIPTION", "simulator-subscription")
+PREMIUM_MODEL_REF = os.environ.get("E2E_PREMIUM_MODEL_REF", "premium-simulated-simulated-premium")
+PREMIUM_SIMULATOR_SUBSCRIPTION = os.environ.get("E2E_PREMIUM_SIMULATOR_SUBSCRIPTION", "premium-simulator-subscription")
+SIMULATOR_ACCESS_POLICY = os.environ.get("E2E_SIMULATOR_ACCESS_POLICY", "simulator-access")
 UNCONFIGURED_MODEL_REF = os.environ.get("E2E_UNCONFIGURED_MODEL_REF", "e2e-unconfigured-facebook-opt-125m-simulated")
 UNCONFIGURED_MODEL_PATH = os.environ.get("E2E_UNCONFIGURED_MODEL_PATH", "/llm/e2e-unconfigured-facebook-opt-125m-simulated")
+DISTINCT_MODEL_REF = os.environ.get("E2E_DISTINCT_MODEL_REF", "e2e-distinct-simulated")
+DISTINCT_MODEL_ID = os.environ.get("E2E_DISTINCT_MODEL_ID", "test/e2e-distinct-model")
+DISTINCT_MODEL_2_REF = os.environ.get("E2E_DISTINCT_MODEL_2_REF", "e2e-distinct-2-simulated")
+DISTINCT_MODEL_2_ID = os.environ.get("E2E_DISTINCT_MODEL_2_ID", "test/e2e-distinct-model-2")
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +132,18 @@ def _create_sa_token(sa_name, namespace=None, duration="10m"):
     if not token:
         raise RuntimeError(f"Could not create token for SA {sa_name}: {result.stderr}")
     return token
+
+
+def _delete_sa(sa_name, namespace=None):
+    """Delete a service account (best-effort, for cleanup)."""
+    namespace = namespace or _ns()
+    subprocess.run(["oc", "delete", "sa", sa_name, "-n", namespace, "--ignore-not-found"], capture_output=True, text=True)
+
+
+def _sa_to_user(sa_name, namespace=None):
+    """Convert service account name to Kubernetes user principal."""
+    namespace = namespace or _ns()
+    return f"system:serviceaccount:{namespace}:{sa_name}"
 
 
 def _get_cluster_token():
@@ -269,6 +311,131 @@ def _get_cr(kind, name, namespace=None):
         raise RuntimeError(
             f"Failed to get {kind}/{name} in namespace '{namespace}': {result.stderr.strip()}"
         )
+
+
+def _snapshot_cr(kind, name, namespace=None):
+    """Capture a CR for later restoration (strips runtime metadata)."""
+    cr = _get_cr(kind, name, namespace)
+    if not cr:
+        return None
+    meta = cr.get("metadata", {})
+    for key in ("resourceVersion", "uid", "creationTimestamp", "generation", "managedFields"):
+        meta.pop(key, None)
+    annotations = meta.get("annotations", {})
+    annotations.pop("kubectl.kubernetes.io/last-applied-configuration", None)
+    if not annotations:
+        meta.pop("annotations", None)
+    cr.pop("status", None)
+    return cr
+
+
+def _list_crs(kind, namespace=None):
+    """List all CRs of a given kind.
+
+    Args:
+        kind: CR kind (e.g., 'maasmodelref', 'maasauthpolicy')
+        namespace: Namespace to search (defaults to _ns())
+
+    Returns:
+        List of CR dictionaries
+
+    Raises:
+        RuntimeError: If kubectl command fails with contextual error details
+    """
+    namespace = namespace or _ns()
+    plural = {
+        "maasmodelref": "maasmodelrefs",
+        "maasauthpolicy": "maasauthpolicies",
+        "maassubscription": "maassubscriptions",
+    }.get(kind, f"{kind}s")
+
+    cmd = ["kubectl", "get", plural, "-n", namespace, "-o", "json"]
+
+    # Retry transient network errors with exponential backoff
+    max_retries = 3
+    retry_delay = 2  # seconds
+
+    for attempt in range(max_retries):
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode == 0:
+            return json.loads(result.stdout).get("items", [])
+
+        # Check if error is transient and we have retries left
+        if attempt < max_retries - 1 and _is_transient_kubectl_error(result.stderr):
+            log.warning(
+                f"Transient kubectl error (attempt {attempt + 1}/{max_retries}): {result.stderr.strip()}"
+            )
+            time.sleep(retry_delay * (attempt + 1))  # exponential backoff
+            continue
+
+        # Final attempt or non-transient error
+        raise RuntimeError(
+            f"Failed to list {plural} in namespace '{namespace}'.\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"Exit code: {result.returncode}\n"
+            f"Stderr: {result.stderr}\n"
+            f"Guidance: Ensure the CRD exists, namespace is correct, and you have permissions."
+        )
+
+    # Unreachable: loop always exits via return or raise
+    # Included for type checker and defensive programming
+    return []
+
+
+def _get_auth_policies_for_model(model_ref, namespace=None):
+    """Get all MaaSAuthPolicies that reference a model.
+
+    Args:
+        model_ref: Name of the MaaSModelRef
+        namespace: Namespace to search (defaults to _ns())
+
+    Returns:
+        List of auth policy names that reference the model
+    """
+    namespace = namespace or _ns()
+    policies = _list_crs("maasauthpolicy", namespace)
+
+    matching = []
+    for policy in policies:
+        model_refs = policy.get("spec", {}).get("modelRefs", [])
+        for ref in model_refs:
+            # Handle both string refs and dict refs with 'name' field
+            ref_name = ref.get("name") if isinstance(ref, dict) else ref
+            if ref_name == model_ref:
+                matching.append(policy["metadata"]["name"])
+                break
+    return matching
+
+
+def _get_subscriptions_for_model(model_ref, namespace=None):
+    """Get all MaaSSubscriptions that reference a model.
+
+    Args:
+        model_ref: Name of the MaaSModelRef
+        namespace: Namespace to search (defaults to _ns())
+
+    Returns:
+        List of subscription names that reference the model
+    """
+    namespace = namespace or _ns()
+    subs = _list_crs("maassubscription", namespace)
+
+    matching = []
+    for sub in subs:
+        model_refs = sub.get("spec", {}).get("modelRefs", [])
+        for ref in model_refs:
+            # Handle both string refs and dict refs with 'name' field
+            ref_name = ref.get("name") if isinstance(ref, dict) else ref
+            if ref_name == model_ref:
+                matching.append(sub["metadata"]["name"])
+                break
+    return matching
 
 
 # ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ import requests
 import time
 
 from conftest import TLS_VERIFY
-from test_subscription import SIMULATOR_SUBSCRIPTION
+from test_helper import SIMULATOR_SUBSCRIPTION
 
 log = logging.getLogger(__name__)
 
