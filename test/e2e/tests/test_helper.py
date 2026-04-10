@@ -448,6 +448,93 @@ def _wait_reconcile(seconds=None):
     time.sleep(seconds or RECONCILE_WAIT)
 
 
+def _wait_for_subscription_phase(name, expected_phase, namespace=None, timeout=60):
+    """Wait for MaaSSubscription to reach a specific phase with populated status.
+
+    Args:
+        name: Name of the MaaSSubscription
+        expected_phase: Expected phase (e.g., "Active", "Failed", "Degraded")
+        namespace: Namespace (defaults to _ns())
+        timeout: Maximum wait time in seconds (default: 60)
+
+    Returns:
+        The subscription CR dict when the expected phase is reached
+
+    Raises:
+        TimeoutError: If MaaSSubscription doesn't reach expected phase within timeout
+    """
+    namespace = namespace or _ns()
+    deadline = time.time() + timeout
+    log.info(f"Waiting for MaaSSubscription {name} to reach phase '{expected_phase}' (timeout: {timeout}s)...")
+
+    while time.time() < deadline:
+        cr = _get_cr("maassubscription", name, namespace)
+        if cr:
+            status = cr.get("status", {})
+            phase = status.get("phase")
+            model_statuses = status.get("modelRefStatuses", [])
+
+            # Check if phase matches AND modelRefStatuses is populated
+            if phase == expected_phase and len(model_statuses) > 0:
+                log.info(f"✅ MaaSSubscription {name} reached phase '{expected_phase}' with {len(model_statuses)} model status(es)")
+                return cr
+            log.debug(f"MaaSSubscription {name}: phase={phase}, modelRefStatuses={len(model_statuses)}")
+        time.sleep(2)
+
+    # Timeout - return current state for debugging
+    cr = _get_cr("maassubscription", name, namespace)
+    status = cr.get("status", {}) if cr else {}
+    raise TimeoutError(
+        f"MaaSSubscription {name} did not reach phase '{expected_phase}' within {timeout}s "
+        f"(current: phase={status.get('phase')}, modelRefStatuses={len(status.get('modelRefStatuses', []))})"
+    )
+
+
+def _wait_for_authpolicy_phase(name, expected_phase, namespace=None, timeout=60, require_auth_policies=True):
+    """Wait for MaaSAuthPolicy to reach a specific phase with populated status.
+
+    Args:
+        name: Name of the MaaSAuthPolicy
+        expected_phase: Expected phase (e.g., "Active", "Failed", "Degraded")
+        namespace: Namespace (defaults to _ns())
+        timeout: Maximum wait time in seconds (default: 60)
+        require_auth_policies: If True, requires authPolicies to be populated (default: True).
+                               Set to False for Failed phase with missing models.
+
+    Returns:
+        The auth policy CR dict when the expected phase is reached
+
+    Raises:
+        TimeoutError: If MaaSAuthPolicy doesn't reach expected phase within timeout
+    """
+    namespace = namespace or _ns()
+    deadline = time.time() + timeout
+    log.info(f"Waiting for MaaSAuthPolicy {name} to reach phase '{expected_phase}' (timeout: {timeout}s)...")
+
+    while time.time() < deadline:
+        cr = _get_cr("maasauthpolicy", name, namespace)
+        if cr:
+            status = cr.get("status", {})
+            phase = status.get("phase")
+            auth_policies = status.get("authPolicies", [])
+
+            # Check if phase matches, optionally require authPolicies
+            if phase == expected_phase:
+                if not require_auth_policies or len(auth_policies) > 0:
+                    log.info(f"✅ MaaSAuthPolicy {name} reached phase '{expected_phase}' with {len(auth_policies)} auth policy status(es)")
+                    return cr
+            log.debug(f"MaaSAuthPolicy {name}: phase={phase}, authPolicies={len(auth_policies)}")
+        time.sleep(2)
+
+    # Timeout - return current state for debugging
+    cr = _get_cr("maasauthpolicy", name, namespace)
+    status = cr.get("status", {}) if cr else {}
+    raise TimeoutError(
+        f"MaaSAuthPolicy {name} did not reach phase '{expected_phase}' within {timeout}s "
+        f"(current: phase={status.get('phase')}, authPolicies={len(status.get('authPolicies', []))})"
+    )
+
+
 def _wait_for_maas_auth_policy_ready(name, namespace=None, timeout=60):
     """Wait for MaaSAuthPolicy to reach Active phase with enforced AuthPolicies."""
     namespace = namespace or _ns()

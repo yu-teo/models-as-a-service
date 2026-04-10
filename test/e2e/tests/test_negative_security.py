@@ -50,6 +50,7 @@ from test_helper import (
     _inference,
     _maas_api_url,
     _poll_status,
+    _wait_for_authpolicy_phase,
     _wait_for_maas_auth_policy_ready,
     _wait_for_maas_subscription_ready,
     _wait_reconcile,
@@ -381,12 +382,7 @@ class TestMissingModelRef:
             # Wait for phase==Active only (not enforced authPolicies — there are
             # none for a ghost model ref, so _wait_for_maas_auth_policy_ready
             # would timeout).
-            deadline = time.time() + 30
-            while time.time() < deadline:
-                cr = _get_cr("maasauthpolicy", policy_name)
-                if cr and cr.get("status", {}).get("phase") == "Active":
-                    break
-                time.sleep(2)
+            _wait_for_authpolicy_phase(policy_name, "Active", timeout=30, require_auth_policies=False)
 
             # CR becomes Active, but no Kuadrant AuthPolicy should exist for the ghost model
             auth_name = f"maas-auth-{ghost_model}"

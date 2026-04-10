@@ -98,8 +98,10 @@ from test_helper import (
     _ns,
     _poll_status,
     _revoke_api_key,
+    _wait_for_authpolicy_phase,
     _wait_for_maas_auth_policy_ready,
     _wait_for_maas_subscription_ready,
+    _wait_for_subscription_phase,
     _wait_reconcile,
 )
 
