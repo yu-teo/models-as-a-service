@@ -107,8 +107,8 @@ from test_helper import (
     _revoke_api_key,
     _sa_to_user,
     _snapshot_cr,
-    _wait_for_authpolicy_phase,
-    _wait_for_subscription_phase,
+    _wait_for_maas_auth_policy_phase,
+    _wait_for_maas_subscription_phase,
     _wait_reconcile,
 )
 
@@ -332,7 +332,7 @@ def high_priority_subscription_name_for_api_key_binding():
             groups=["system:authenticated"],
             priority=_E2E_API_KEY_BINDING_HIGH_PRIORITY,
         )
-        _wait_for_subscription_phase(name, namespace=ns, timeout=90)
+        _wait_for_maas_subscription_phase(name, namespace=ns, timeout=90)
         yield name
     finally:
         _delete_cr("maassubscription", name)
@@ -906,7 +906,7 @@ class TestOrderingEdgeCases:
                 },
             })
             _wait_reconcile()
-            _wait_for_subscription_phase("e2e-ordering-sub", namespace=ns, timeout=90)
+            _wait_for_maas_subscription_phase("e2e-ordering-sub", namespace=ns, timeout=90)
 
             api_key = _create_api_key(
                 _get_cluster_token(),
@@ -1681,10 +1681,10 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, MODEL_REF, users=[sa_user])
             _create_test_subscription(subscription_name, MODEL_REF, users=[sa_user])
 
-            _wait_for_authpolicy_phase(auth_name)
+            _wait_for_maas_auth_policy_phase(auth_name)
 
             # Wait for subscription to reach Active phase with populated status
-            cr = _wait_for_subscription_phase(subscription_name, "Active", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Active", timeout=60)
 
             status = cr.get("status", {})
             model_statuses = status.get("modelRefStatuses", [])
@@ -1726,7 +1726,7 @@ class TestStatusReporting:
             _create_test_subscription(subscription_name, missing_model, users=[sa_user])
 
             # Wait for subscription to reach Failed phase with polling
-            cr = _wait_for_subscription_phase(subscription_name, "Failed", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Failed", timeout=60)
 
             status = cr.get("status", {})
             model_statuses = status.get("modelRefStatuses", [])
@@ -1764,7 +1764,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, MODEL_REF, users=[sa_user])
 
             # Wait for auth policy to reach Active phase with populated status
-            cr = _wait_for_authpolicy_phase(auth_name, "Active", timeout=90)
+            cr = _wait_for_maas_auth_policy_phase(auth_name, "Active", timeout=90)
 
             status = cr.get("status", {})
             auth_policies = status.get("authPolicies", [])
@@ -1804,7 +1804,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, missing_model, users=[sa_user])
 
             # Wait for auth policy to reach Failed phase (no authPolicies expected for missing model)
-            cr = _wait_for_authpolicy_phase(auth_name, "Failed", timeout=60, require_auth_policies=False)
+            cr = _wait_for_maas_auth_policy_phase(auth_name, "Failed", timeout=60, require_auth_policies=False)
 
             status = cr.get("status", {})
             log.info(f"AuthPolicy status: phase={status.get('phase')}, authPolicies={status.get('authPolicies', [])}")
@@ -1841,7 +1841,7 @@ class TestStatusReporting:
             _create_test_subscription(subscription_name, [MODEL_REF, missing_model], users=[sa_user])
 
             # Wait for subscription to reach Degraded phase with polling
-            cr = _wait_for_subscription_phase(subscription_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Degraded", timeout=60)
 
             status = cr.get("status", {})
             model_statuses = status.get("modelRefStatuses", [])
@@ -1886,7 +1886,7 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, [MODEL_REF, missing_model], users=[sa_user])
 
             # Wait for auth policy to reach Degraded phase with polling
-            cr = _wait_for_authpolicy_phase(auth_name, "Degraded", timeout=60)
+            cr = _wait_for_maas_auth_policy_phase(auth_name, "Degraded", timeout=60)
 
             status = cr.get("status", {})
             auth_policies = status.get("authPolicies", [])
@@ -1930,8 +1930,8 @@ class TestStatusReporting:
             _create_test_auth_policy(auth_name, model_name, users=[sa_user])
             _create_test_subscription(subscription_name, model_name, users=[sa_user])
 
-            _wait_for_authpolicy_phase(auth_name)
-            _wait_for_subscription_phase(subscription_name)
+            _wait_for_maas_auth_policy_phase(auth_name)
+            _wait_for_maas_subscription_phase(subscription_name)
 
             # Verify initial Active status
             cr = _get_cr("maassubscription", subscription_name, namespace=ns)
@@ -1946,7 +1946,7 @@ class TestStatusReporting:
 
             # Wait for subscription to transition to Failed phase with polling
             # Use longer timeout to allow for cache invalidation
-            cr = _wait_for_subscription_phase(subscription_name, "Failed", timeout=120)
+            cr = _wait_for_maas_subscription_phase(subscription_name, "Failed", timeout=120)
 
             # Poll for modelRefStatuses to also reflect the deletion
             # (cache may take additional time to invalidate)

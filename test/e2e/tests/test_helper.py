@@ -614,7 +614,7 @@ def _wait_reconcile(seconds=None):
     time.sleep(seconds or RECONCILE_WAIT)
 
 
-def _wait_for_subscription_phase(name, expected_phase="Active", namespace=None, timeout=60, require_model_statuses=False):
+def _wait_for_maas_subscription_phase(name, expected_phase="Active", namespace=None, timeout=60, require_model_statuses=False):
     """Wait for MaaSSubscription to reach a specific phase.
 
     Args:
@@ -658,7 +658,7 @@ def _wait_for_subscription_phase(name, expected_phase="Active", namespace=None, 
     )
 
 
-def _wait_for_authpolicy_phase(name, expected_phase="Active", namespace=None, timeout=60,
+def _wait_for_maas_auth_policy_phase(name, expected_phase="Active", namespace=None, timeout=60,
                                 require_auth_policies=True, require_enforced=True):
     """Wait for MaaSAuthPolicy to reach a specific phase.
 

@@ -52,8 +52,8 @@ from test_helper import (
     _ns,
     _sa_to_user,
     _snapshot_cr,
-    _wait_for_authpolicy_phase,
-    _wait_for_subscription_phase,
+    _wait_for_maas_auth_policy_phase,
+    _wait_for_maas_subscription_phase,
     _wait_reconcile,
 )
 
@@ -1105,10 +1105,10 @@ class TestModelsEndpoint:
             _create_test_auth_policy(auth2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
             _create_test_subscription(sub2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
 
-            _wait_for_authpolicy_phase(auth1_name)
-            _wait_for_authpolicy_phase(auth2_name)
-            _wait_for_subscription_phase(sub1_name)
-            _wait_for_subscription_phase(sub2_name)
+            _wait_for_maas_auth_policy_phase(auth1_name)
+            _wait_for_maas_auth_policy_phase(auth2_name)
+            _wait_for_maas_subscription_phase(sub1_name)
+            _wait_for_maas_subscription_phase(sub2_name)
 
             # Query with user token (no X-MaaS-Subscription header)
             log.info("Querying /v1/models with user token (no header)")
@@ -1963,10 +1963,10 @@ class TestModelsEndpoint:
             _create_test_auth_policy(auth2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
             _create_test_subscription(sub2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
 
-            _wait_for_authpolicy_phase(auth1_name)
-            _wait_for_authpolicy_phase(auth2_name)
-            _wait_for_subscription_phase(sub1_name)
-            _wait_for_subscription_phase(sub2_name)
+            _wait_for_maas_auth_policy_phase(auth1_name)
+            _wait_for_maas_auth_policy_phase(auth2_name)
+            _wait_for_maas_subscription_phase(sub1_name)
+            _wait_for_maas_subscription_phase(sub2_name)
 
             # Query with K8s token (no header)
             log.info("Querying /v1/models with K8s token (no header) - should return models from both subscriptions")
@@ -2030,10 +2030,10 @@ class TestModelsEndpoint:
             _create_test_auth_policy(auth2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
             _create_test_subscription(sub2_name, DISTINCT_MODEL_2_REF, users=[sa_user])
 
-            _wait_for_authpolicy_phase(auth1_name)
-            _wait_for_authpolicy_phase(auth2_name)
-            _wait_for_subscription_phase(sub1_name)
-            _wait_for_subscription_phase(sub2_name)
+            _wait_for_maas_auth_policy_phase(auth1_name)
+            _wait_for_maas_auth_policy_phase(auth2_name)
+            _wait_for_maas_subscription_phase(sub1_name)
+            _wait_for_maas_subscription_phase(sub2_name)
 
             # Query with K8s token and header specifying sub1
             log.info(f"Querying /v1/models with K8s token and header: {sub1_name}")
