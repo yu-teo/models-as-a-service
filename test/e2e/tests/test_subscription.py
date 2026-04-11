@@ -77,17 +77,11 @@ import pytest
 import requests
 
 from test_helper import (
-    DISTINCT_MODEL_2_ID,
-    DISTINCT_MODEL_2_REF,
-    DISTINCT_MODEL_ID,
-    DISTINCT_MODEL_REF,
     MODEL_NAME,
     MODEL_NAMESPACE,
     MODEL_PATH,
     MODEL_REF,
     PREMIUM_MODEL_REF,
-    PREMIUM_SIMULATOR_SUBSCRIPTION,
-    RECONCILE_WAIT,
     SIMULATOR_ACCESS_POLICY,
     SIMULATOR_SUBSCRIPTION,
     TIMEOUT,
@@ -123,8 +117,6 @@ log = logging.getLogger(__name__)
 
 # Constants specific to test_subscription.py (not shared)
 PREMIUM_MODEL_PATH = os.environ.get("E2E_PREMIUM_MODEL_PATH", "/llm/premium-simulated-simulated-premium")
-DISTINCT_MODEL_PATH = os.environ.get("E2E_DISTINCT_MODEL_PATH", "/llm/e2e-distinct-simulated")
-DISTINCT_MODEL_2_PATH = os.environ.get("E2E_DISTINCT_MODEL_2_PATH", "/llm/e2e-distinct-2-simulated")
 INVALID_SUBSCRIPTION = os.environ.get("E2E_INVALID_SUBSCRIPTION", "nonexistent-sub")
 
 # Generated resource names (for TestManagedAnnotation)

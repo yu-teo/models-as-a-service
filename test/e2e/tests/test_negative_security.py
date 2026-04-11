@@ -52,7 +52,6 @@ from test_helper import (
     _poll_status,
     _wait_for_authpolicy_phase,
     _wait_for_subscription_phase,
-    _wait_reconcile,
 )
 
 log = logging.getLogger(__name__)

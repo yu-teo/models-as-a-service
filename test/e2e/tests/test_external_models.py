@@ -85,16 +85,6 @@ def _get_cr(kind: str, name: str, namespace: str) -> Optional[dict]:
     return json.loads(result.stdout)
 
 
-def _wait_for_phase(kind: str, name: str, namespace: str, phase: str, timeout: int = 60) -> bool:
-    """Wait for a CR to reach a specific status phase."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        cr = _get_cr(kind, name, namespace)
-        if cr and cr.get("status", {}).get("phase") == phase:
-            return True
-        time.sleep(2)
-    return False
-
 
 # ─── Connectivity check ──────────────────────────────────────────────────────
 
