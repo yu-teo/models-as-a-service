@@ -126,7 +126,8 @@ func (r *MaaSSubscriptionReconciler) checkTokenRateLimitHealth(ctx context.Conte
 		policyName := fmt.Sprintf("maas-trlp-%s", ref.Name)
 		status := maasv1alpha1.TokenRateLimitStatus{
 			ResourceRefStatus: maasv1alpha1.ResourceRefStatus{
-				Name: policyName,
+				Name:      policyName,
+				Namespace: ref.Namespace,
 			},
 			Model: ref.Name,
 		}
@@ -340,12 +341,12 @@ func (r *MaaSSubscriptionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	backendNotReady := make(map[string]string, len(trlpStatuses))
 	for _, ts := range trlpStatuses {
 		if ts.Reason == maasv1alpha1.ReasonBackendNotReady {
-			backendNotReady[ts.Model] = ts.Message
+			backendNotReady[ts.Namespace+"/"+ts.Model] = ts.Message
 		}
 	}
 	for i := range modelStatuses {
 		if modelStatuses[i].Ready {
-			if msg, found := backendNotReady[modelStatuses[i].Name]; found {
+			if msg, found := backendNotReady[modelStatuses[i].Namespace+"/"+modelStatuses[i].Name]; found {
 				modelStatuses[i].Ready = false
 				modelStatuses[i].Reason = maasv1alpha1.ReasonNotFound
 				modelStatuses[i].Message = msg
