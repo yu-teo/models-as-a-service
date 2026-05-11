@@ -152,6 +152,21 @@ func TestGetEndpointFromLLMISvc_CaseInsensitiveHostname(t *testing.T) {
 	}
 }
 
+func TestGetEndpointFromLLMISvc_NilNameAndNilURLSkipped(t *testing.T) {
+	llmisvc := newReadyLLMISvc("test-model", "default", []duckv1.Addressable{
+		{Name: nil, URL: mustParseURL("https://maas.example.com/test-model")},
+		{Name: strPtr("gateway-external"), URL: nil},
+		{Name: strPtr("gateway-external"), URL: mustParseURL("https://maas.example.com/test-model")},
+	})
+	h := &llmisvcHandler{}
+
+	got := h.getEndpointFromLLMISvc(llmisvc, []string{"maas.example.com"})
+	want := "https://maas.example.com/test-model"
+	if got != want {
+		t.Errorf("getEndpointFromLLMISvc() = %q, want %q (should skip nil-Name and nil-URL addresses)", got, want)
+	}
+}
+
 func TestGetEndpointFromLLMISvc_EmptyHostnameSkipped(t *testing.T) {
 	emptyHostURL := &apis.URL{Path: "/test-model"}
 	llmisvc := newReadyLLMISvc("test-model", "default", []duckv1.Addressable{
