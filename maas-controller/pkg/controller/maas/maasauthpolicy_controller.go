@@ -777,6 +777,33 @@ allow {
 						"metrics":  false,
 						"priority": int64(1),
 					},
+					"X-MaaS-Tenant": map[string]any{
+						"when": []any{
+							map[string]any{
+								"selector": "request.headers.authorization",
+								"operator": "matches",
+								"value":    "^Bearer sk-oai-.*",
+							},
+						},
+						"plain": map[string]any{
+							"selector": "auth.metadata.apiKeyValidation.tenant",
+						},
+						"metrics":  false,
+						"priority": int64(0),
+					},
+					"X-MaaS-Tenant-Token": map[string]any{
+						"when": []any{
+							map[string]any{
+								"predicate": `!request.headers.authorization.startsWith("Bearer sk-oai-")`,
+							},
+						},
+						"plain": map[string]any{
+							"expression": fmt.Sprintf(`"%s"`, r.MaaSAPINamespace),
+						},
+						"key":      "X-MaaS-Tenant",
+						"metrics":  false,
+						"priority": int64(1),
+					},
 					// Only inject X-MaaS-Subscription when there is a real value to inject.
 					// An empty string injected for K8s tokens without a subscription header
 					// causes maas-api to filter by an empty subscription name and return 0 models.
