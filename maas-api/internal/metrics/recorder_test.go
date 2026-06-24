@@ -20,12 +20,12 @@ type mockRecorder struct {
 }
 
 type recordedDuration struct {
-	method, route, status string
-	duration              time.Duration
+	method, route, status, tenant string
+	duration                      time.Duration
 }
 
-func (m *mockRecorder) RecordRequestDuration(method, route, status string, d time.Duration) {
-	m.durations = append(m.durations, recordedDuration{method, route, status, d})
+func (m *mockRecorder) RecordRequestDuration(method, route, status, tenant string, d time.Duration) {
+	m.durations = append(m.durations, recordedDuration{method, route, status, tenant, d})
 }
 
 func (m *mockRecorder) IncrementInFlight(method string) {
