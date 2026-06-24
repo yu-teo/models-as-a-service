@@ -157,7 +157,7 @@ func TestSearchAPIKeys_EmptyRequest(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	testUser := &token.UserContext{
 		Username: "test-user",
@@ -204,7 +204,7 @@ func TestSearchAPIKeys_Pagination(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	testUser := &token.UserContext{
 		Username: "test-user",
@@ -309,7 +309,7 @@ func TestSearchAPIKeys_StatusFilter(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 	testUser := &token.UserContext{
@@ -436,7 +436,7 @@ func TestSearchAPIKeys_SubscriptionFilter(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 	testUser := &token.UserContext{
@@ -495,7 +495,7 @@ func TestSearchAPIKeys_Sorting(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 	testUser := &token.UserContext{
@@ -621,7 +621,7 @@ func TestSearchAPIKeys_AdminVsRegularUser(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -745,7 +745,7 @@ func TestSearchAPIKeys_AdminFiltersByUsernameAndStatus(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -829,7 +829,7 @@ func TestBulkRevokeAPIKeys(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -988,7 +988,7 @@ func TestUserCanCreateOwnKey(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	regularUser := &token.UserContext{
 		Username: "alice",
@@ -1027,7 +1027,7 @@ func TestCreateAPIKey_WithExplicitSubscription(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	user := &token.UserContext{Username: "alice", Groups: []string{"system:authenticated"}, Tenant: "test-tenant"}
 	body := `{"name": "k1", "subscription": "custom-sub"}`
@@ -1088,7 +1088,7 @@ func TestCreateAPIKey_SubscriptionSelectErrors(t *testing.T) {
 			store := NewMockStore()
 			cfg := &config.Config{}
 			service := NewServiceWithLogger(store, cfg, tt.sel, logger.Development())
-			h := NewHandler(logger.Development(), service, newMockAdminChecker())
+			h := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
@@ -1123,7 +1123,7 @@ func TestGetAPIKeyHandler(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	// Create test keys for alice and bob
 	aliceKey := &ApiKey{
@@ -1240,7 +1240,7 @@ func testRevokeKeySuccess(t *testing.T, user *token.UserContext) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	// Create alice's key
 	err := store.AddKey(context.Background(), "alice", "alice-key-1", "hash1", "Alice's Key", "", []string{"tier-free"}, testSubscriptionName, "test-tenant", nil, false)
@@ -1284,7 +1284,7 @@ func TestRevokeAPIKeyHandler(t *testing.T) {
 		store := NewMockStore()
 		cfg := &config.Config{}
 		service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-		handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+		handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 		// Create alice's key
 		err := store.AddKey(context.Background(), "alice", "alice-key-1", "hash1", "Alice's Key", "", []string{"tier-free"}, testSubscriptionName, "test-tenant", nil, false)
@@ -1331,7 +1331,7 @@ func TestRevokeAPIKeyHandler(t *testing.T) {
 		store := NewMockStore()
 		cfg := &config.Config{}
 		service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-		handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+		handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 		aliceUser := &token.UserContext{
 			Username: "alice",
@@ -1354,7 +1354,7 @@ func TestRevokeAPIKeyHandler(t *testing.T) {
 		store := NewMockStore()
 		cfg := &config.Config{}
 		service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-		handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+		handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 		// Create and immediately revoke alice's key
 		err := store.AddKey(context.Background(), "alice", "alice-key-1", "hash1", "Alice's Key", "", []string{"tier-free"}, testSubscriptionName, "test-tenant", nil, false)
@@ -1390,7 +1390,7 @@ func TestCreateEphemeralAPIKey(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	testUser := &token.UserContext{
 		Username: "playground-user",
@@ -1525,7 +1525,7 @@ func TestCleanupExpiredEphemeralKeys(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -1604,7 +1604,7 @@ func TestSearchExcludesEphemeralByDefault(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 	testUser := &token.UserContext{
@@ -1661,7 +1661,7 @@ func TestSearchAPIKeys_ExpiredStatusComputation(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 	testUser := &token.UserContext{
@@ -1726,7 +1726,7 @@ func TestGetAPIKey_ExpiredStatusComputation(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 	testUser := &token.UserContext{
@@ -1840,7 +1840,7 @@ func TestCrossTenantAccessRejected(t *testing.T) {
 			store := NewMockStore()
 			cfg := &config.Config{}
 			svc := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-			h := NewHandler(logger.Development(), svc, newMockAdminChecker())
+			h := NewHandler(logger.Development(), svc, newMockAdminChecker(), nil)
 
 			ctx := context.Background()
 			err := store.AddKey(ctx, "alice", "ta-key-1", "hash-ta1", "TA Key", "",
@@ -1874,7 +1874,7 @@ func TestSearchAPIKeys_TenantIsolation(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -1917,7 +1917,7 @@ func TestCreateAPIKey_StoresTenant(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	user := &token.UserContext{
 		Username: "alice",
@@ -1954,7 +1954,7 @@ func TestBulkRevokeAPIKeys_TenantIsolation(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -2022,7 +2022,7 @@ func TestSearchAPIKeys_AdminCrossTenantIsolation(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 
@@ -2067,7 +2067,7 @@ func TestSearchAPIKeys_EmptyTenantNoResults(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	ctx := context.Background()
 

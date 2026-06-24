@@ -70,6 +70,6 @@ func TestMetricsServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 	bodyStr := string(body)
 
-	assert.Contains(t, bodyStr, `maas_api_http_requests_total{method="GET",route="/v1/models",status="200",tenant=""} 1`)
+	assert.Contains(t, bodyStr, `maas_api_http_requests_total{method="GET",route="/v1/models",status="200",tenant_name=""} 1`)
 	assert.Contains(t, bodyStr, "maas_api_http_request_duration_seconds")
 }

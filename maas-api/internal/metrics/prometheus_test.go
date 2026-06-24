@@ -63,9 +63,9 @@ func TestRecordRequestDuration(t *testing.T) {
 	r.RecordRequestDuration("POST", "/v1/api-keys", "201", "tenant-b", 50*time.Millisecond)
 
 	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant": "tenant-a"}), 0)
+		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant_name": "tenant-a"}), 0)
 	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"method": "POST", "route": "/v1/api-keys", "status": "201", "tenant": "tenant-b"}), 0)
+		map[string]string{"method": "POST", "route": "/v1/api-keys", "status": "201", "tenant_name": "tenant-b"}), 0)
 }
 
 // TestRecordRequestDuration_TenantLabel verifies that the same route with different
@@ -78,9 +78,9 @@ func TestRecordRequestDuration_TenantLabel(t *testing.T) {
 	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-b", 100*time.Millisecond)
 
 	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"tenant": "tenant-a"}), 0)
+		map[string]string{"tenant_name": "tenant-a"}), 0)
 	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"tenant": "tenant-b"}), 0)
+		map[string]string{"tenant_name": "tenant-b"}), 0)
 }
 
 // TestRecordRequestDuration_EmptyTenant verifies that requests without tenant context
@@ -91,7 +91,7 @@ func TestRecordRequestDuration_EmptyTenant(t *testing.T) {
 	r.RecordRequestDuration("POST", "/internal/v1/api-keys/validate", "200", "", 10*time.Millisecond)
 
 	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"tenant": "", "route": "/internal/v1/api-keys/validate"}), 0)
+		map[string]string{"tenant_name": "", "route": "/internal/v1/api-keys/validate"}), 0)
 }
 
 func TestInFlightGauge(t *testing.T) {
