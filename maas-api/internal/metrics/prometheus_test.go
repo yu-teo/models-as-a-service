@@ -58,12 +58,40 @@ func gatherMetricValue(t *testing.T, reg *prometheus.Registry, name string, labe
 func TestRecordRequestDuration(t *testing.T) {
 	r, reg := newTestRecorder(t)
 
-	r.RecordRequestDuration("GET", "/v1/models", "200", 150*time.Millisecond)
-	r.RecordRequestDuration("GET", "/v1/models", "200", 250*time.Millisecond)
-	r.RecordRequestDuration("POST", "/v1/api-keys", "201", 50*time.Millisecond)
+	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-a", 150*time.Millisecond)
+	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-a", 250*time.Millisecond)
+	r.RecordRequestDuration("POST", "/v1/api-keys", "201", "tenant-b", 50*time.Millisecond)
 
-	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_http_requests_total", map[string]string{"method": "GET", "route": "/v1/models", "status": "200"}), 0)
-	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total", map[string]string{"method": "POST", "route": "/v1/api-keys", "status": "201"}), 0)
+	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_http_requests_total",
+		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant": "tenant-a"}), 0)
+	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total",
+		map[string]string{"method": "POST", "route": "/v1/api-keys", "status": "201", "tenant": "tenant-b"}), 0)
+}
+
+// TestRecordRequestDuration_TenantLabel verifies that the same route with different
+// tenants produces distinct metric series.
+func TestRecordRequestDuration_TenantLabel(t *testing.T) {
+	r, reg := newTestRecorder(t)
+
+	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-a", 100*time.Millisecond)
+	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-b", 100*time.Millisecond)
+	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-b", 100*time.Millisecond)
+
+	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total",
+		map[string]string{"tenant": "tenant-a"}), 0)
+	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_http_requests_total",
+		map[string]string{"tenant": "tenant-b"}), 0)
+}
+
+// TestRecordRequestDuration_EmptyTenant verifies that requests without tenant context
+// (internal routes, health checks) produce metrics with an empty tenant label.
+func TestRecordRequestDuration_EmptyTenant(t *testing.T) {
+	r, reg := newTestRecorder(t)
+
+	r.RecordRequestDuration("POST", "/internal/v1/api-keys/validate", "200", "", 10*time.Millisecond)
+
+	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_http_requests_total",
+		map[string]string{"tenant": "", "route": "/internal/v1/api-keys/validate"}), 0)
 }
 
 func TestInFlightGauge(t *testing.T) {
@@ -98,7 +126,7 @@ func TestNewPrometheusRecorderDuplicateRegistration(t *testing.T) {
 func TestDurationHistogramObserved(t *testing.T) {
 	r, reg := newTestRecorder(t)
 
-	r.RecordRequestDuration("GET", "/v1/models", "200", 150*time.Millisecond)
+	r.RecordRequestDuration("GET", "/v1/models", "200", "tenant-a", 150*time.Millisecond)
 
 	families, err := reg.Gather()
 	require.NoError(t, err)
