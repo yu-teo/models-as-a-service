@@ -38,6 +38,12 @@ type Handler struct {
 	service      *Service
 	logger       *logger.Logger
 	adminChecker AdminChecker
+	metrics      MetricsRecorder
+}
+
+// MetricsRecorder is the subset of metrics.MetricsRecorder used by this handler.
+type MetricsRecorder interface {
+	RecordKeyValidation(tenant, result string)
 }
 
 func (h *Handler) GetAPIKeyConfig(c *gin.Context) {
@@ -47,7 +53,7 @@ func (h *Handler) GetAPIKeyConfig(c *gin.Context) {
 	})
 }
 
-func NewHandler(log *logger.Logger, service *Service, adminChecker AdminChecker) *Handler {
+func NewHandler(log *logger.Logger, service *Service, adminChecker AdminChecker, metrics MetricsRecorder) *Handler {
 	if log == nil {
 		log = logger.Production()
 	}
@@ -58,6 +64,7 @@ func NewHandler(log *logger.Logger, service *Service, adminChecker AdminChecker)
 		service:      service,
 		logger:       log,
 		adminChecker: adminChecker,
+		metrics:      metrics,
 	}
 }
 
@@ -296,6 +303,14 @@ func (h *Handler) ValidateAPIKeyHandler(c *gin.Context) {
 		h.logger.Error("API key validation failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "validation failed"})
 		return
+	}
+
+	if h.metrics != nil {
+		validResult := "invalid"
+		if result.Valid {
+			validResult = "valid"
+		}
+		h.metrics.RecordKeyValidation(result.Tenant, validResult)
 	}
 
 	if !result.Valid {

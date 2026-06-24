@@ -36,6 +36,9 @@ func (m *mockRecorder) DecrementInFlight(method string) {
 	m.inFlightDec = append(m.inFlightDec, method)
 }
 
+func (m *mockRecorder) RecordKeyValidation(tenant, result string) {
+}
+
 func setupTestRouter(rec metrics.MetricsRecorder) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

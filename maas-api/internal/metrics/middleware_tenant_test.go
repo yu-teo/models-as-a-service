@@ -40,7 +40,7 @@ func TestMiddleware_ExtractsTenantFromContext(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	val := gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant": "redteam"})
+		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant_name": "redteam"})
 	assert.InDelta(t, float64(1), val, 0)
 }
 
@@ -65,6 +65,6 @@ func TestMiddleware_EmptyTenantWhenNoUserContext(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	val := gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"method": "GET", "route": "/health", "status": "200", "tenant": ""})
+		map[string]string{"method": "GET", "route": "/health", "status": "200", "tenant_name": ""})
 	assert.InDelta(t, float64(1), val, 0)
 }
