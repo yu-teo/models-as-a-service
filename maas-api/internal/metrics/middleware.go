@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/token"
 )
 
 func NewMiddleware(recorder MetricsRecorder) gin.HandlerFunc {
@@ -25,7 +27,14 @@ func NewMiddleware(recorder MetricsRecorder) gin.HandlerFunc {
 			route = "unmatched"
 		}
 
+		tenant := ""
+		if u, ok := c.Get("user"); ok {
+			if uc, ok := u.(*token.UserContext); ok {
+				tenant = uc.Tenant
+			}
+		}
+
 		status := strconv.Itoa(c.Writer.Status())
-		recorder.RecordRequestDuration(method, route, status, duration)
+		recorder.RecordRequestDuration(method, route, status, tenant, duration)
 	}
 }

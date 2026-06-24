@@ -20,13 +20,13 @@ func NewPrometheusRecorder(reg prometheus.Registerer) (*PrometheusRecorder, erro
 	requestsTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "maas_api_http_requests_total",
 		Help: "Total number of HTTP requests served.",
-	}, []string{"method", "route", "status"})
+	}, []string{"method", "route", "status", "tenant"})
 
 	requestDuration := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "maas_api_http_request_duration_seconds",
 		Help:    "HTTP request latency in seconds.",
 		Buckets: prometheus.DefBuckets,
-	}, []string{"method", "route", "status"})
+	}, []string{"method", "route", "status", "tenant"})
 
 	inFlight := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "maas_api_http_requests_in_flight",
@@ -46,9 +46,9 @@ func NewPrometheusRecorder(reg prometheus.Registerer) (*PrometheusRecorder, erro
 	}, nil
 }
 
-func (r *PrometheusRecorder) RecordRequestDuration(method, route, statusCode string, duration time.Duration) {
-	r.requestsTotal.WithLabelValues(method, route, statusCode).Inc()
-	r.requestDuration.WithLabelValues(method, route, statusCode).Observe(duration.Seconds())
+func (r *PrometheusRecorder) RecordRequestDuration(method, route, statusCode, tenant string, duration time.Duration) {
+	r.requestsTotal.WithLabelValues(method, route, statusCode, tenant).Inc()
+	r.requestDuration.WithLabelValues(method, route, statusCode, tenant).Observe(duration.Seconds())
 }
 
 func (r *PrometheusRecorder) IncrementInFlight(method string) {
