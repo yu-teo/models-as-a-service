@@ -63,6 +63,13 @@ type Config struct {
 
 	MetricsPort int
 
+	// OTELEndpoint is the OTLP gRPC endpoint for trace export (e.g., "localhost:4317").
+	// Tracing is disabled when empty.
+	OTELEndpoint string
+
+	// OTELInsecure disables TLS for the OTLP exporter connection.
+	OTELInsecure bool
+
 	// Deprecated flag (backward compatibility with pre-TLS version)
 	deprecatedHTTPPort string
 }
@@ -76,6 +83,7 @@ func Load() *Config {
 	accessCheckTimeoutSeconds, _ := env.GetInt("ACCESS_CHECK_TIMEOUT_SECONDS", 15)
 	sarCacheMaxSize, _ := env.GetInt("SAR_CACHE_MAX_SIZE", constant.DefaultSARCacheMaxSize)
 	metricsPort, _ := env.GetInt("METRICS_PORT", constant.DefaultMetricsPort)
+	otelInsecure, _ := env.GetBool("OTEL_EXPORTER_OTLP_INSECURE", false)
 
 	tenantName := strings.TrimSpace(env.GetString("TENANT_NAME", "models-as-a-service"))
 	if tenantName == "" {
@@ -98,6 +106,8 @@ func Load() *Config {
 		AccessCheckTimeoutSeconds: accessCheckTimeoutSeconds,
 		SARCacheMaxSize:           sarCacheMaxSize,
 		MetricsPort:               metricsPort,
+		OTELEndpoint:              env.GetString("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		OTELInsecure:              otelInsecure,
 		// Deprecated env var (backward compatibility with pre-TLS version)
 		deprecatedHTTPPort: env.GetString("PORT", ""),
 	}
