@@ -92,7 +92,7 @@ func TestMiddleware_SpanWithoutTenantContext(t *testing.T) {
 		attrs[string(a.Key)] = a.Value.AsString()
 	}
 
-	assert.Equal(t, "", attrs["tenant.name"],
+	assert.Empty(t, attrs["tenant.name"],
 		"tenant.name should be empty for unauthenticated routes")
 }
 

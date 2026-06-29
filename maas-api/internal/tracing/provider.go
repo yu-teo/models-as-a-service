@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -16,9 +17,9 @@ import (
 // InitTracer sets up the global OTEL TracerProvider with an OTLP gRPC exporter.
 // Returns a shutdown function that flushes pending spans.
 // If endpoint is empty, tracing is disabled (noop provider, zero overhead).
-func InitTracer(ctx context.Context, endpoint string, insecureConn bool, serviceName, serviceNamespace string) (func(), error) {
+func InitTracer(ctx context.Context, endpoint string, insecureConn bool, serviceName, serviceNamespace string) (func(context.Context), error) {
 	if endpoint == "" {
-		return func() {}, nil
+		return func(context.Context) {}, nil
 	}
 
 	opts := []otlptracegrpc.Option{
@@ -49,8 +50,10 @@ func InitTracer(ctx context.Context, endpoint string, insecureConn bool, service
 	)
 	otel.SetTracerProvider(tp)
 
-	shutdown := func() {
-		_ = tp.Shutdown(context.Background())
+	shutdown := func(ctx context.Context) {
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_ = tp.Shutdown(shutdownCtx)
 	}
 	return shutdown, nil
 }
