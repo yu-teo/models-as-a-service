@@ -98,7 +98,7 @@ func serve() error {
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
 	router.Use(middleware.AccessLogger())
-	router.Use(tracing.NewMiddleware(cfg.Namespace, cfg.GatewayName, cfg.GatewayNamespace))
+	router.Use(tracing.NewMiddleware(cfg.TenantName, cfg.Namespace, cfg.GatewayName, cfg.GatewayNamespace))
 
 	// Add metrics middleware
 	metricsRecorder, err := metrics.NewPrometheusRecorder(metricsRegistry)

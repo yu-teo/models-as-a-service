@@ -35,7 +35,7 @@ func TestMiddleware_SpanWithTenantAttributes(t *testing.T) {
 	exporter := setupTracingTest(t)
 
 	router := gin.New()
-	router.Use(tracing.NewMiddleware("ai-tenant-redteam", "redteam-gw", "openshift-ingress"))
+	router.Use(tracing.NewMiddleware("redteam", "ai-tenant-redteam", "redteam-gw", "openshift-ingress"))
 	router.GET("/v1/models", func(c *gin.Context) {
 		c.Set("user", &token.UserContext{
 			Username: "alice",
@@ -68,14 +68,14 @@ func TestMiddleware_SpanWithTenantAttributes(t *testing.T) {
 	assert.Equal(t, "/v1/models", attrs["http.route"])
 }
 
-// TestMiddleware_SpanWithoutTenantContext verifies that spans have empty
-// tenant attributes for unauthenticated routes (health, internal).
-func TestMiddleware_SpanWithoutTenantContext(t *testing.T) {
+// TestMiddleware_SpanDefaultTenantWithoutUserContext verifies that spans use
+// the default tenant name when no UserContext is set (health, internal routes).
+func TestMiddleware_SpanDefaultTenantWithoutUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	exporter := setupTracingTest(t)
 
 	router := gin.New()
-	router.Use(tracing.NewMiddleware("ai-tenant-redteam", "redteam-gw", "openshift-ingress"))
+	router.Use(tracing.NewMiddleware("models-as-a-service", "ai-tenant-redteam", "redteam-gw", "openshift-ingress"))
 	router.GET("/health", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -92,8 +92,8 @@ func TestMiddleware_SpanWithoutTenantContext(t *testing.T) {
 		attrs[string(a.Key)] = a.Value.AsString()
 	}
 
-	assert.Empty(t, attrs["tenant.name"],
-		"tenant.name should be empty for unauthenticated routes")
+	assert.Equal(t, "models-as-a-service", attrs["tenant.name"],
+		"unauthenticated routes should use default tenant name")
 }
 
 // TestMiddleware_SpanStatusOnServerError verifies that 5xx responses
@@ -103,7 +103,7 @@ func TestMiddleware_SpanStatusOnServerError(t *testing.T) {
 	exporter := setupTracingTest(t)
 
 	router := gin.New()
-	router.Use(tracing.NewMiddleware("", "", ""))
+	router.Use(tracing.NewMiddleware("default-tenant", "", "", ""))
 	router.GET("/fail", func(c *gin.Context) {
 		c.Status(http.StatusInternalServerError)
 	})
@@ -124,7 +124,7 @@ func TestMiddleware_NoopWhenNoProvider(t *testing.T) {
 	otel.SetTracerProvider(sdktrace.NewTracerProvider())
 
 	router := gin.New()
-	router.Use(tracing.NewMiddleware("", "", ""))
+	router.Use(tracing.NewMiddleware("default-tenant", "", "", ""))
 	router.GET("/v1/models", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})

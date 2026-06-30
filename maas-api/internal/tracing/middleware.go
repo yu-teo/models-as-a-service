@@ -18,7 +18,8 @@ const tracerName = "maas-api"
 // NewMiddleware returns a Gin middleware that creates OTEL spans for each request
 // and enriches them with tenant context from UserContext.
 // If no TracerProvider is configured, spans are noops (zero overhead).
-func NewMiddleware(tenantNamespace, gatewayName, gatewayNamespace string) gin.HandlerFunc {
+// defaultTenant is used when no UserContext is available (internal/health routes).
+func NewMiddleware(defaultTenant, tenantNamespace, gatewayName, gatewayNamespace string) gin.HandlerFunc {
 	tracer := otel.Tracer(tracerName)
 
 	return func(c *gin.Context) {
@@ -39,27 +40,24 @@ func NewMiddleware(tenantNamespace, gatewayName, gatewayNamespace string) gin.Ha
 
 		c.Next()
 
-		span.SetAttributes(
-			attribute.String("http.method", c.Request.Method),
-			attribute.String("http.route", route),
-			attribute.Int("http.status_code", c.Writer.Status()),
-		)
-
-		tenantName := ""
+		tenantName := defaultTenant
 		if u, ok := c.Get("user"); ok {
 			if uc, ok := u.(*token.UserContext); ok {
 				tenantName = uc.Tenant
 			}
 		}
 
+		status := c.Writer.Status()
 		span.SetAttributes(
+			attribute.String("http.method", c.Request.Method),
+			attribute.String("http.route", route),
+			attribute.Int("http.status_code", status),
 			attribute.String("tenant.name", tenantName),
 			attribute.String("tenant.namespace", tenantNamespace),
 			attribute.String("gateway.name", gatewayName),
 			attribute.String("gateway.namespace", gatewayNamespace),
 		)
 
-		status := c.Writer.Status()
 		if status >= 500 {
 			span.SetStatus(codes.Error, "HTTP "+strconv.Itoa(status))
 		}
