@@ -14,6 +14,14 @@ import (
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/token"
 )
 
+func testTenantLogCfg() middleware.TenantLoggerConfig {
+	return middleware.TenantLoggerConfig{
+		DefaultTenant:   "models-as-a-service",
+		TenantNamespace: "test-namespace",
+		GatewayName:     "test-gateway",
+	}
+}
+
 // TestTenantLogger_EnrichesWithTenantAndRequestID verifies the middleware
 // stores a logger with tenant_name and request_id fields in the Gin context.
 func TestTenantLogger_EnrichesWithTenantAndRequestID(t *testing.T) {
@@ -30,7 +38,7 @@ func TestTenantLogger_EnrichesWithTenantAndRequestID(t *testing.T) {
 		})
 		c.Next()
 	})
-	router.Use(middleware.TenantLogger(logger.Development()))
+	router.Use(middleware.TenantLogger(logger.Development(), testTenantLogCfg()))
 	router.GET("/test", func(c *gin.Context) {
 		captured = middleware.GetLogger(c)
 		c.Status(http.StatusOK)
@@ -51,7 +59,7 @@ func TestTenantLogger_FallbackWithoutUserContext(t *testing.T) {
 
 	var captured *logger.Logger
 	router := gin.New()
-	router.Use(middleware.TenantLogger(logger.Development()))
+	router.Use(middleware.TenantLogger(logger.Development(), testTenantLogCfg()))
 	router.GET("/health", func(c *gin.Context) {
 		captured = middleware.GetLogger(c)
 		c.Status(http.StatusOK)

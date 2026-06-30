@@ -9,24 +9,36 @@ import (
 
 const loggerKey = "logger"
 
+// TenantLoggerConfig holds static tenant context injected into per-request loggers.
+type TenantLoggerConfig struct {
+	DefaultTenant   string
+	TenantNamespace string
+	GatewayName     string
+}
+
 // TenantLogger returns a Gin middleware that creates a per-request logger
 // enriched with tenant context and request ID. The enriched logger is stored
 // in the Gin context and accessible via GetLogger.
-func TenantLogger(base *logger.Logger) gin.HandlerFunc {
+func TenantLogger(base *logger.Logger, cfg TenantLoggerConfig) gin.HandlerFunc {
 	if base == nil {
 		base = logger.Production()
 	}
 	return func(c *gin.Context) {
-		fields := []any{}
+		tenantName := cfg.DefaultTenant
+		if u, ok := c.Get("user"); ok {
+			if uc, ok := u.(*token.UserContext); ok {
+				tenantName = uc.Tenant
+			}
+		}
+
+		fields := []any{
+			"tenant_name", tenantName,
+			"tenant_namespace", cfg.TenantNamespace,
+			"gateway_name", cfg.GatewayName,
+		}
 
 		if requestID := GetRequestID(c); requestID != "" {
 			fields = append(fields, "request_id", requestID)
-		}
-
-		if u, ok := c.Get("user"); ok {
-			if uc, ok := u.(*token.UserContext); ok {
-				fields = append(fields, "tenant_name", uc.Tenant)
-			}
 		}
 
 		enriched := base.WithFields(fields...)

@@ -96,8 +96,14 @@ func serve() error {
 
 	// Recovery must be first to catch panics from subsequent middleware
 	router.Use(gin.Recovery())
+	accessLogCfg := middleware.TenantLoggerConfig{
+		DefaultTenant:   cfg.TenantName,
+		TenantNamespace: cfg.Namespace,
+		GatewayName:     cfg.GatewayName,
+	}
+
 	router.Use(middleware.RequestID())
-	router.Use(middleware.AccessLogger())
+	router.Use(middleware.AccessLogger(log, accessLogCfg))
 	router.Use(tracing.NewMiddleware(cfg.TenantName, cfg.Namespace, cfg.GatewayName, cfg.GatewayNamespace))
 
 	// Add metrics middleware
@@ -229,7 +235,12 @@ func registerHandlers(ctx context.Context, log *logger.Logger, router *gin.Engin
 	apiKeyService := api_keys.NewServiceWithLogger(store, cfg, subscriptionSelector, log)
 	apiKeyHandler := api_keys.NewHandler(log, apiKeyService, cluster.AdminChecker)
 
-	authMiddleware := []gin.HandlerFunc{tokenHandler.ExtractUserInfo(), middleware.TenantLogger(log)}
+	tenantLogCfg := middleware.TenantLoggerConfig{
+		DefaultTenant:   cfg.TenantName,
+		TenantNamespace: cfg.Namespace,
+		GatewayName:     cfg.GatewayName,
+	}
+	authMiddleware := []gin.HandlerFunc{tokenHandler.ExtractUserInfo(), middleware.TenantLogger(log, tenantLogCfg)}
 
 	v1Routes.GET("/models", append(authMiddleware, modelsHandler.ListLLMs)...)
 
