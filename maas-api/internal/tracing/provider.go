@@ -17,7 +17,7 @@ import (
 // InitTracer sets up the global OTEL TracerProvider with an OTLP gRPC exporter.
 // Returns a shutdown function that flushes pending spans.
 // If endpoint is empty, tracing is disabled (noop provider, zero overhead).
-func InitTracer(ctx context.Context, endpoint string, insecureConn bool, serviceName, serviceNamespace string) (func(context.Context), error) {
+func InitTracer(ctx context.Context, endpoint string, insecureConn bool, sampleRate float64, serviceName, serviceNamespace string) (func(context.Context), error) {
 	if endpoint == "" {
 		return func(context.Context) {}, nil
 	}
@@ -44,9 +44,15 @@ func InitTracer(ctx context.Context, endpoint string, insecureConn bool, service
 		return nil, fmt.Errorf("create trace resource: %w", err)
 	}
 
+	sampler := sdktrace.AlwaysSample()
+	if sampleRate < 1.0 {
+		sampler = sdktrace.TraceIDRatioBased(sampleRate)
+	}
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.ParentBased(sampler)),
 	)
 	otel.SetTracerProvider(tp)
 

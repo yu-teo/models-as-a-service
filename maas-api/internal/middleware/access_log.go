@@ -37,6 +37,7 @@ func AccessLogger(log *logger.Logger, cfg TenantLoggerConfig) gin.HandlerFunc {
 			"tenant_name", tenantName,
 			"tenant_namespace", cfg.TenantNamespace,
 			"gateway_name", cfg.GatewayName,
+			"auth_headers", logger.SensitiveHeadersSummaryForAccessLog(c.Request.Header),
 		)
 	}
 }

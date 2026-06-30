@@ -80,7 +80,7 @@ func serve() error {
 
 	// Initialize OTEL tracing (noop if endpoint not configured)
 	tracingShutdown, err := tracing.InitTracer(
-		ctx, cfg.OTELEndpoint, cfg.OTELInsecure,
+		ctx, cfg.OTELEndpoint, cfg.OTELInsecure, cfg.OTELSampleRate,
 		"maas-api", cfg.Namespace,
 	)
 	if err != nil {
