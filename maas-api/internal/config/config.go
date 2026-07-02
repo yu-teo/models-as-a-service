@@ -62,6 +62,13 @@ type Config struct {
 	// Bounds memory usage under high-cardinality user traffic. Default: 8192.
 	SARCacheMaxSize int
 
+	// LastUsedDebounceSecs is the minimum number of seconds between consecutive
+	// last_used_at writes to Postgres for the same API key. When many requests
+	// share a single key (e.g. load tests), only one UPDATE is issued per window
+	// instead of one per request, preventing row-lock contention.
+	// Set to 0 to disable debouncing (every validation writes to DB). Default: 60.
+	LastUsedDebounceSecs int
+
 	MetricsPort int
 
 	// OTELEndpoint is the OTLP gRPC endpoint for trace export (e.g., "localhost:4317").
@@ -87,6 +94,7 @@ func Load() *Config {
 	maxExpirationDays, _ := env.GetInt("API_KEY_MAX_EXPIRATION_DAYS", constant.DefaultAPIKeyMaxExpirationDays)
 	accessCheckTimeoutSeconds, _ := env.GetInt("ACCESS_CHECK_TIMEOUT_SECONDS", 15)
 	sarCacheMaxSize, _ := env.GetInt("SAR_CACHE_MAX_SIZE", constant.DefaultSARCacheMaxSize)
+	lastUsedDebounceSecs, _ := env.GetInt("LAST_USED_DEBOUNCE_SECS", 60)
 	metricsPort, _ := env.GetInt("METRICS_PORT", constant.DefaultMetricsPort)
 	otelInsecure, _ := env.GetBool("OTEL_EXPORTER_OTLP_INSECURE", false)
 	otelSampleRate := 1.0
@@ -116,6 +124,7 @@ func Load() *Config {
 		APIKeyMaxExpirationDays:   maxExpirationDays,
 		AccessCheckTimeoutSeconds: accessCheckTimeoutSeconds,
 		SARCacheMaxSize:           sarCacheMaxSize,
+		LastUsedDebounceSecs:      lastUsedDebounceSecs,
 		MetricsPort:               metricsPort,
 		OTELEndpoint:              env.GetString("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		OTELInsecure:              otelInsecure,
@@ -199,6 +208,10 @@ func (c *Config) Validate() error {
 
 	if c.AccessCheckTimeoutSeconds < 1 {
 		return errors.New("ACCESS_CHECK_TIMEOUT_SECONDS must be at least 1")
+	}
+
+	if c.LastUsedDebounceSecs < 0 {
+		return errors.New("LAST_USED_DEBOUNCE_SECS must be greater than or equal to 0")
 	}
 
 	if c.MetricsPort < 1 || c.MetricsPort > 65535 {
