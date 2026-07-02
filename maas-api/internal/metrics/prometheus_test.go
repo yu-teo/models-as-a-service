@@ -123,6 +123,39 @@ func TestNewPrometheusRecorderDuplicateRegistration(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestRecordKeyValidation verifies that the key validation counter increments
+// correctly with tenant and result labels.
+func TestRecordKeyValidation(t *testing.T) {
+	r, reg := newTestRecorder(t)
+
+	r.RecordKeyValidation("redteam", "valid")
+	r.RecordKeyValidation("redteam", "valid")
+	r.RecordKeyValidation("redteam", "invalid")
+	r.RecordKeyValidation("blueteam", "valid")
+
+	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_key_validation_total",
+		map[string]string{"tenant_name": "redteam", "result": "valid"}), 0)
+	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_key_validation_total",
+		map[string]string{"tenant_name": "redteam", "result": "invalid"}), 0)
+	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_key_validation_total",
+		map[string]string{"tenant_name": "blueteam", "result": "valid"}), 0)
+}
+
+// TestRecordTokenMint verifies that the token mint counter increments
+// correctly with tenant and result labels.
+func TestRecordTokenMint(t *testing.T) {
+	r, reg := newTestRecorder(t)
+
+	r.RecordTokenMint("redteam", "success")
+	r.RecordTokenMint("redteam", "success")
+	r.RecordTokenMint("redteam", "failure")
+
+	assert.InDelta(t, float64(2), gatherMetricValue(t, reg, "maas_api_token_mint_total",
+		map[string]string{"tenant_name": "redteam", "result": "success"}), 0)
+	assert.InDelta(t, float64(1), gatherMetricValue(t, reg, "maas_api_token_mint_total",
+		map[string]string{"tenant_name": "redteam", "result": "failure"}), 0)
+}
+
 func TestDurationHistogramObserved(t *testing.T) {
 	r, reg := newTestRecorder(t)
 

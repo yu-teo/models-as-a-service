@@ -2128,7 +2128,7 @@ func TestCreateAPIKey_NameValidation(t *testing.T) {
 	store := NewMockStore()
 	cfg := &config.Config{}
 	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
-	handler := NewHandler(logger.Development(), service, newMockAdminChecker())
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), nil)
 
 	user := &token.UserContext{
 		Username: "user",
