@@ -9,7 +9,7 @@ import (
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/token"
 )
 
-func NewMiddleware(recorder MetricsRecorder) gin.HandlerFunc {
+func NewMiddleware(recorder MetricsRecorder, defaultTenant string) gin.HandlerFunc {
 	if recorder == nil {
 		panic("metrics.NewMiddleware: nil MetricsRecorder")
 	}
@@ -27,7 +27,7 @@ func NewMiddleware(recorder MetricsRecorder) gin.HandlerFunc {
 			route = "unmatched"
 		}
 
-		tenant := ""
+		tenant := defaultTenant
 		if u, ok := c.Get("user"); ok {
 			if uc, ok := u.(*token.UserContext); ok {
 				tenant = uc.Tenant

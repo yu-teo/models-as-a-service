@@ -23,7 +23,7 @@ func TestMiddleware_ExtractsTenantFromContext(t *testing.T) {
 	require.NoError(t, err)
 
 	router := gin.New()
-	router.Use(metrics.NewMiddleware(recorder))
+	router.Use(metrics.NewMiddleware(recorder, "models-as-a-service"))
 	router.GET("/v1/models", func(c *gin.Context) {
 		c.Set("user", &token.UserContext{
 			Username: "alice",
@@ -44,16 +44,16 @@ func TestMiddleware_ExtractsTenantFromContext(t *testing.T) {
 	assert.InDelta(t, float64(1), val, 0)
 }
 
-// TestMiddleware_EmptyTenantWhenNoUserContext verifies that requests without
-// auth middleware (health, internal) produce metrics with an empty tenant label.
-func TestMiddleware_EmptyTenantWhenNoUserContext(t *testing.T) {
+// TestMiddleware_DefaultTenantWhenNoUserContext verifies that requests without
+// auth middleware (health, internal) produce metrics with the default tenant label.
+func TestMiddleware_DefaultTenantWhenNoUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	reg := prometheus.NewRegistry()
 	recorder, err := metrics.NewPrometheusRecorder(reg)
 	require.NoError(t, err)
 
 	router := gin.New()
-	router.Use(metrics.NewMiddleware(recorder))
+	router.Use(metrics.NewMiddleware(recorder, "models-as-a-service"))
 	router.GET("/health", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -65,6 +65,6 @@ func TestMiddleware_EmptyTenantWhenNoUserContext(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	val := gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"method": "GET", "route": "/health", "status": "200", "tenant_name": ""})
+		map[string]string{"method": "GET", "route": "/health", "status": "200", "tenant_name": "models-as-a-service"})
 	assert.InDelta(t, float64(1), val, 0)
 }

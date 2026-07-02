@@ -90,7 +90,7 @@ func serve() error {
 	if err != nil {
 		return fmt.Errorf("failed to create metrics recorder: %w", err)
 	}
-	router.Use(metrics.NewMiddleware(metricsRecorder))
+	router.Use(metrics.NewMiddleware(metricsRecorder, cfg.TenantName))
 
 	// Start metrics server
 	metricsSrv, err := metrics.NewMetricsServer(cfg.MetricsAddress(), metricsRegistry)

@@ -45,7 +45,7 @@ func (m *mockRecorder) RecordTokenMint(tenant, result string) {
 func setupTestRouter(rec metrics.MetricsRecorder) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(metrics.NewMiddleware(rec))
+	r.Use(metrics.NewMiddleware(rec, "test-tenant"))
 	r.GET("/v1/models", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.POST("/v1/api-keys", func(c *gin.Context) { c.String(http.StatusCreated, "created") })
 	r.GET("/v1/api-keys/:id", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
