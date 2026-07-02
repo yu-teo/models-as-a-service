@@ -39,6 +39,9 @@ func (m *mockRecorder) DecrementInFlight(method string) {
 func (m *mockRecorder) RecordKeyValidation(tenant, result string) {
 }
 
+func (m *mockRecorder) RecordTokenMint(tenant, result string) {
+}
+
 func setupTestRouter(rec metrics.MetricsRecorder) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

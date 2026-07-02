@@ -12,6 +12,7 @@ type PrometheusRecorder struct {
 	requestDuration *prometheus.HistogramVec
 	inFlight        *prometheus.GaugeVec
 	keyValidation   *prometheus.CounterVec
+	tokenMint       *prometheus.CounterVec
 }
 
 func NewPrometheusRecorder(reg prometheus.Registerer) (*PrometheusRecorder, error) {
@@ -39,7 +40,12 @@ func NewPrometheusRecorder(reg prometheus.Registerer) (*PrometheusRecorder, erro
 		Help: "Total number of API key validations by tenant and result.",
 	}, []string{"tenant_name", "result"})
 
-	for _, c := range []prometheus.Collector{requestsTotal, requestDuration, inFlight, keyValidation} {
+	tokenMint := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "maas_api_token_mint_total",
+		Help: "Total number of API key mints by tenant and result.",
+	}, []string{"tenant_name", "result"})
+
+	for _, c := range []prometheus.Collector{requestsTotal, requestDuration, inFlight, keyValidation, tokenMint} {
 		if err := reg.Register(c); err != nil {
 			return nil, err
 		}
@@ -50,6 +56,7 @@ func NewPrometheusRecorder(reg prometheus.Registerer) (*PrometheusRecorder, erro
 		requestDuration: requestDuration,
 		inFlight:        inFlight,
 		keyValidation:   keyValidation,
+		tokenMint:       tokenMint,
 	}, nil
 }
 
@@ -60,6 +67,10 @@ func (r *PrometheusRecorder) RecordRequestDuration(method, route, statusCode, te
 
 func (r *PrometheusRecorder) RecordKeyValidation(tenant, result string) {
 	r.keyValidation.WithLabelValues(tenant, result).Inc()
+}
+
+func (r *PrometheusRecorder) RecordTokenMint(tenant, result string) {
+	r.tokenMint.WithLabelValues(tenant, result).Inc()
 }
 
 func (r *PrometheusRecorder) IncrementInFlight(method string) {

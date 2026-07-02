@@ -44,6 +44,7 @@ type Handler struct {
 // MetricsRecorder is the subset of metrics.MetricsRecorder used by this handler.
 type MetricsRecorder interface {
 	RecordKeyValidation(tenant, result string)
+	RecordTokenMint(tenant, result string)
 }
 
 func (h *Handler) GetAPIKeyConfig(c *gin.Context) {
@@ -235,6 +236,9 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 		strings.TrimSpace(req.Subscription),
 		user.Tenant)
 	if err != nil {
+		if h.metrics != nil {
+			h.metrics.RecordTokenMint(user.Tenant, "failure")
+		}
 		h.logger.Error("Failed to create API key", "error", err)
 		if errors.Is(err, ErrExpirationNotPositive) || errors.Is(err, ErrExpirationExceedsMax) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -269,6 +273,10 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create API key"})
 		return
+	}
+
+	if h.metrics != nil {
+		h.metrics.RecordTokenMint(user.Tenant, "success")
 	}
 
 	h.logger.Info("Created API key",
