@@ -110,6 +110,12 @@ func (h *Handler) isAuthorizedForKey(ctx context.Context, user *token.UserContex
 	return h.isAdmin(ctx, user)
 }
 
+func (h *Handler) recordTokenMint(tenant, result string) {
+	if h.metrics != nil {
+		h.metrics.RecordTokenMint(tenant, result)
+	}
+}
+
 func (h *Handler) GetAPIKey(c *gin.Context) {
 	tokenID := c.Param("id")
 	if tokenID == "" {
@@ -236,11 +242,9 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 		strings.TrimSpace(req.Subscription),
 		user.Tenant)
 	if err != nil {
-		if h.metrics != nil {
-			h.metrics.RecordTokenMint(user.Tenant, "failure")
-		}
 		h.logger.Error("Failed to create API key", "error", err)
 		if errors.Is(err, ErrExpirationNotPositive) || errors.Is(err, ErrExpirationExceedsMax) {
+			h.recordTokenMint(user.Tenant, "rejected")
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -252,6 +256,7 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 		var modelUnhealthy *subscription.ModelUnhealthyError
 		if errors.As(err, &notFound) || errors.As(err, &accessDenied) || errors.As(err, &noSub) ||
 			errors.As(err, &multipleSubs) || errors.As(err, &modelNotInSub) {
+			h.recordTokenMint(user.Tenant, "rejected")
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": apiKeySubscriptionResolutionErrMsg,
 				"code":  apiKeySubscriptionResolutionErrCode,
@@ -259,8 +264,7 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 			return
 		}
 		if errors.As(err, &modelUnhealthy) {
-			// Unreconciled (empty phase): 400 - temporary state, retry later
-			// Failed phase: 403 - authorization denied, subscription broken
+			h.recordTokenMint(user.Tenant, "rejected")
 			statusCode := http.StatusBadRequest
 			if modelUnhealthy.Phase == "Failed" {
 				statusCode = http.StatusForbidden
@@ -271,13 +275,12 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 			})
 			return
 		}
+		h.recordTokenMint(user.Tenant, "failure")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create API key"})
 		return
 	}
 
-	if h.metrics != nil {
-		h.metrics.RecordTokenMint(user.Tenant, "success")
-	}
+	h.recordTokenMint(user.Tenant, "success")
 
 	h.logger.Info("Created API key",
 		"keyId", result.ID,

@@ -106,6 +106,95 @@ func executeSearchRequest(t *testing.T, handler *Handler, requestBody string, us
 	return response
 }
 
+type metricsCall struct {
+	tenant, result string
+}
+
+type spyMetricsRecorder struct {
+	keyValidations []metricsCall
+	tokenMints     []metricsCall
+}
+
+func (s *spyMetricsRecorder) RecordKeyValidation(tenant, result string) {
+	s.keyValidations = append(s.keyValidations, metricsCall{tenant, result})
+}
+
+func (s *spyMetricsRecorder) RecordTokenMint(tenant, result string) {
+	s.tokenMints = append(s.tokenMints, metricsCall{tenant, result})
+}
+
+// TestCreateAPIKey_TokenMintMetrics verifies that the token mint counter records
+// the correct result label for successful and rejected key creation.
+func TestCreateAPIKey_TokenMintMetrics(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		expectedStatus int
+		expectedResult string
+	}{
+		{"success", `{"name": "metric-test-key"}`, http.StatusCreated, "success"},
+		{"rejected", `{"name": "bad-key", "expiresIn": "-1h"}`, http.StatusBadRequest, "rejected"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			spy := &spyMetricsRecorder{}
+			store := NewMockStore()
+			svc := NewServiceWithLogger(store, &config.Config{}, fixedSubSelector{}, logger.Development())
+			h := NewHandler(logger.Development(), svc, newMockAdminChecker(), spy)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/api-keys", nil)
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Body = io.NopCloser(strings.NewReader(tt.body))
+			c.Set("user", &token.UserContext{
+				Username: "alice",
+				Groups:   []string{"system:authenticated"},
+				Tenant:   "redteam",
+			})
+
+			h.CreateAPIKey(c)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			require.Len(t, spy.tokenMints, 1)
+			assert.Equal(t, "redteam", spy.tokenMints[0].tenant)
+			assert.Equal(t, tt.expectedResult, spy.tokenMints[0].result)
+		})
+	}
+}
+
+func TestValidateAPIKey_RecordsValidationMetric(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := NewMockStore()
+	cfg := &config.Config{}
+	service := NewServiceWithLogger(store, cfg, fixedSubSelector{}, logger.Development())
+	spy := &spyMetricsRecorder{}
+	handler := NewHandler(logger.Development(), service, newMockAdminChecker(), spy)
+
+	// Create a key via service so hash and subscription are correct
+	resp, err := service.CreateAPIKey(
+		context.Background(), "alice", []string{"system:authenticated"},
+		"Val Key", "", nil, false, "", "redteam",
+	)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/internal/v1/api-keys/validate", nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Body = io.NopCloser(strings.NewReader(
+		fmt.Sprintf(`{"key": "%s"}`, resp.Key)))
+
+	handler.ValidateAPIKeyHandler(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, spy.keyValidations, 1)
+	assert.Equal(t, "redteam", spy.keyValidations[0].tenant)
+	assert.Equal(t, "valid", spy.keyValidations[0].result)
+}
+
 func TestIsAuthorizedForKey(t *testing.T) {
 	h := &Handler{
 		adminChecker: newMockAdminChecker(),
