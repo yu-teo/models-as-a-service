@@ -14,9 +14,9 @@ import (
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/token"
 )
 
-// TestMiddleware_ExtractsTenantFromContext verifies that the metrics middleware
-// reads the tenant from UserContext set by upstream auth middleware.
-func TestMiddleware_ExtractsTenantFromContext(t *testing.T) {
+// TestMiddleware_UsesConfiguredTenantRegardlessOfUserContext verifies that the
+// metrics middleware always uses the configured default tenant, not the user's.
+func TestMiddleware_UsesConfiguredTenantRegardlessOfUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	reg := prometheus.NewRegistry()
 	recorder, err := metrics.NewPrometheusRecorder(reg)
@@ -40,7 +40,7 @@ func TestMiddleware_ExtractsTenantFromContext(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	val := gatherMetricValue(t, reg, "maas_api_http_requests_total",
-		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant_name": "redteam"})
+		map[string]string{"method": "GET", "route": "/v1/models", "status": "200", "tenant_name": "models-as-a-service"})
 	assert.InDelta(t, float64(1), val, 0)
 }
 

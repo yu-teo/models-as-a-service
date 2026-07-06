@@ -311,6 +311,9 @@ func (h *Handler) ValidateAPIKeyHandler(c *gin.Context) {
 
 	result, err := h.service.ValidateAPIKey(c.Request.Context(), req.Key)
 	if err != nil {
+		if h.metrics != nil {
+			h.metrics.RecordKeyValidation("", "error")
+		}
 		h.logger.Error("API key validation failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "validation failed"})
 		return
