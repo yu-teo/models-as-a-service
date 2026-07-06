@@ -98,13 +98,13 @@ func serve() error {
 	router.Use(gin.Recovery())
 	accessLogCfg := middleware.TenantLoggerConfig{
 		DefaultTenant:   cfg.TenantName,
-		TenantNamespace: cfg.Namespace,
+		TenantNamespace: cfg.MaaSSubscriptionNamespace,
 		GatewayName:     cfg.GatewayName,
 	}
 
 	router.Use(middleware.RequestID())
 	router.Use(middleware.AccessLogger(log, accessLogCfg))
-	router.Use(tracing.NewMiddleware(cfg.TenantName, cfg.Namespace, cfg.GatewayName, cfg.GatewayNamespace))
+	router.Use(tracing.NewMiddleware(cfg.TenantName, cfg.MaaSSubscriptionNamespace, cfg.GatewayName, cfg.GatewayNamespace))
 
 	// Add metrics middleware
 	metricsRecorder, err := metrics.NewPrometheusRecorder(metricsRegistry)
@@ -238,7 +238,7 @@ func registerHandlers(ctx context.Context, log *logger.Logger, router *gin.Engin
 
 	tenantLogCfg := middleware.TenantLoggerConfig{
 		DefaultTenant:   cfg.TenantName,
-		TenantNamespace: cfg.Namespace,
+		TenantNamespace: cfg.MaaSSubscriptionNamespace,
 		GatewayName:     cfg.GatewayName,
 	}
 	authMiddleware := []gin.HandlerFunc{tokenHandler.ExtractUserInfo(), middleware.TenantLogger(log, tenantLogCfg)}
