@@ -38,28 +38,30 @@ func NewMiddleware(defaultTenant, tenantNamespace, gatewayName, gatewayNamespace
 
 		c.Request = c.Request.WithContext(ctx)
 
-		c.Next()
-
-		tenantName := defaultTenant
-		if u, ok := c.Get("user"); ok {
-			if uc, ok := u.(*token.UserContext); ok {
-				tenantName = uc.Tenant
+		defer func() {
+			tenantName := defaultTenant
+			if u, ok := c.Get("user"); ok {
+				if uc, ok := u.(*token.UserContext); ok {
+					tenantName = uc.Tenant
+				}
 			}
-		}
 
-		status := c.Writer.Status()
-		span.SetAttributes(
-			attribute.String("http.method", c.Request.Method),
-			attribute.String("http.route", route),
-			attribute.Int("http.status_code", status),
-			attribute.String("tenant.name", tenantName),
-			attribute.String("tenant.namespace", tenantNamespace),
-			attribute.String("gateway.name", gatewayName),
-			attribute.String("gateway.namespace", gatewayNamespace),
-		)
+			status := c.Writer.Status()
+			span.SetAttributes(
+				attribute.String("http.method", c.Request.Method),
+				attribute.String("http.route", route),
+				attribute.Int("http.status_code", status),
+				attribute.String("tenant.name", tenantName),
+				attribute.String("tenant.namespace", tenantNamespace),
+				attribute.String("gateway.name", gatewayName),
+				attribute.String("gateway.namespace", gatewayNamespace),
+			)
 
-		if status >= 500 {
-			span.SetStatus(codes.Error, "HTTP "+strconv.Itoa(status))
-		}
+			if status >= 500 {
+				span.SetStatus(codes.Error, "HTTP "+strconv.Itoa(status))
+			}
+		}()
+
+		c.Next()
 	}
 }
