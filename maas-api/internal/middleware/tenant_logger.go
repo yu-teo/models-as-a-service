@@ -48,12 +48,12 @@ func TenantLogger(base *logger.Logger, cfg TenantLoggerConfig) gin.HandlerFunc {
 }
 
 // GetLogger retrieves the per-request logger from the Gin context.
-// Falls back to a production logger if none is set.
+// Returns nil if no logger was set by TenantLogger middleware.
 func GetLogger(c *gin.Context) *logger.Logger {
 	if l, ok := c.Get(loggerKey); ok {
 		if log, ok := l.(*logger.Logger); ok {
 			return log
 		}
 	}
-	return logger.Production()
+	return nil
 }

@@ -73,9 +73,9 @@ func TestTenantLogger_FallbackWithoutUserContext(t *testing.T) {
 	require.NotNil(t, captured)
 }
 
-// TestGetLogger_FallbackWhenNoMiddleware verifies that GetLogger returns
-// a production logger when the TenantLogger middleware was not applied.
-func TestGetLogger_FallbackWhenNoMiddleware(t *testing.T) {
+// TestGetLogger_NilWhenNoMiddleware verifies that GetLogger returns
+// nil when the TenantLogger middleware was not applied.
+func TestGetLogger_NilWhenNoMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var captured *logger.Logger
@@ -90,5 +90,5 @@ func TestGetLogger_FallbackWhenNoMiddleware(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	require.NotNil(t, captured, "should fall back to production logger")
+	assert.Nil(t, captured, "should return nil when no middleware set the logger")
 }
