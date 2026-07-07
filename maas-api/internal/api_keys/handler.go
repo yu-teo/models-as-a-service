@@ -14,6 +14,7 @@ import (
 
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/constant"
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/logger"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/middleware"
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/subscription"
 	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/token"
 )
@@ -85,6 +86,15 @@ func (h *Handler) getUserContext(c *gin.Context) *token.UserContext {
 	}
 
 	return user
+}
+
+// reqLogger returns the per-request logger enriched with tenant context,
+// falling back to the handler's base logger for internal routes.
+func (h *Handler) reqLogger(c *gin.Context) *logger.Logger {
+	if l := middleware.GetLogger(c); l != nil {
+		return l
+	}
+	return h.logger
 }
 
 // isAdmin checks if the user has admin privileges via SubjectAccessReview.
@@ -282,11 +292,10 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 
 	h.recordTokenMint(user.Tenant, "success")
 
-	h.logger.Info("Created API key",
+	h.reqLogger(c).Info("Created API key",
 		"keyId", result.ID,
 		"keyPrefix", result.KeyPrefix,
 		"username", user.Username,
-		"groups", user.Groups,
 		"ephemeral", req.Ephemeral,
 	)
 
@@ -394,7 +403,7 @@ func (h *Handler) RevokeAPIKey(c *gin.Context) {
 		return
 	}
 
-	h.logger.Info("Revoked API key", "keyId", keyID, "revokedBy", user.Username)
+	h.reqLogger(c).Info("Revoked API key", "keyId", keyID, "revokedBy", user.Username)
 
 	// Return the revoked key metadata (per OpenAPI spec)
 	revokedKey, err := h.service.GetAPIKey(c.Request.Context(), keyID)
@@ -600,7 +609,7 @@ func (h *Handler) BulkRevokeAPIKeys(c *gin.Context) {
 		return
 	}
 
-	h.logger.Info("Bulk revoked API keys",
+	h.reqLogger(c).Info("Bulk revoked API keys",
 		"count", count,
 		"targetUser", req.Username,
 		"revokedBy", user.Username,
