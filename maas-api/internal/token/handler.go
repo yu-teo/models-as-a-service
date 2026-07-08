@@ -77,7 +77,7 @@ func (h *Handler) ExtractUserInfo() gin.HandlerFunc {
 		if groupHeader == "" {
 			h.logger.Error("Missing group header",
 				"header", constant.HeaderGroup,
-				"username", username,
+				"username_hash", logger.RedactValue(username),
 			)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":         "Exception thrown while generating token",
@@ -115,8 +115,8 @@ func (h *Handler) ExtractUserInfo() gin.HandlerFunc {
 		}
 
 		h.logger.Debug("Extracted user info from headers",
-			"username", username,
-			"groups", groups,
+			"username_hash", logger.RedactValue(username),
+			"groupCount", len(groups),
 		)
 
 		c.Set("user", userContext)
