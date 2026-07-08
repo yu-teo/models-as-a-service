@@ -116,7 +116,7 @@ func (h *Handler) ExtractUserInfo() gin.HandlerFunc {
 
 		h.logger.Debug("Extracted user info from headers",
 			"username_hash", logger.RedactValue(username),
-			"groupCount", len(groups),
+			"groups", groups,
 		)
 
 		c.Set("user", userContext)
