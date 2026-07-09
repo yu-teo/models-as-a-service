@@ -174,7 +174,9 @@ func (c *Config) bindFlags(fs *flag.FlagSet) {
 // It returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
 	// Handle backward compatibility for deprecated flags
-	c.handleDeprecatedFlags()
+	if err := c.handleDeprecatedFlags(); err != nil {
+		return err
+	}
 
 	// Validate required fields
 	if c.DBConnectionURL == "" {
