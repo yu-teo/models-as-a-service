@@ -235,14 +235,22 @@ func (c *Config) Validate() error {
 }
 
 // handleDeprecatedFlags maps deprecated flags to new configuration.
-func (c *Config) handleDeprecatedFlags() {
-	// If deprecated --port flag is used, map to new model (HTTP mode)
-	if c.deprecatedHTTPPort != "" {
-		c.Secure = false
-		if c.Address == "" {
-			c.Address = ":" + c.deprecatedHTTPPort
-		}
+// Returns an error if the deprecated --port flag conflicts with TLS settings
+// (CWE-319/CWE-757 mitigation: refuse to silently downgrade to plaintext).
+func (c *Config) handleDeprecatedFlags() error {
+	if c.deprecatedHTTPPort == "" {
+		return nil
 	}
+
+	if c.Secure || c.TLS.Enabled() {
+		return fmt.Errorf("deprecated --port/PORT cannot be used with --secure or TLS configuration; "+
+			"use --address=:%s with TLS flags instead", c.deprecatedHTTPPort)
+	}
+
+	if c.Address == "" {
+		c.Address = ":" + c.deprecatedHTTPPort
+	}
+	return nil
 }
 
 // PrintDeprecationWarnings prints warnings for deprecated flags to stderr.
