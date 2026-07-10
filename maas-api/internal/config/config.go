@@ -244,6 +244,11 @@ func (c *Config) handleDeprecatedFlags() error {
 		return nil
 	}
 
+	port, err := strconv.Atoi(c.deprecatedHTTPPort)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("deprecated --port/PORT value %q is not a valid TCP port (1-65535)", c.deprecatedHTTPPort)
+	}
+
 	if c.Secure || c.TLS.Enabled() {
 		return fmt.Errorf("deprecated --port/PORT cannot be used with --secure or TLS configuration; "+
 			"use --address=:%s with TLS flags instead", c.deprecatedHTTPPort)

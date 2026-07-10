@@ -334,6 +334,16 @@ func TestHandleDeprecatedFlags(t *testing.T) {
 		}
 	})
 
+	t.Run("deprecated port rejects malformed values", func(t *testing.T) {
+		for _, bad := range []string{":8080", "foo", "0", "65536", "-1"} {
+			cfg := &Config{deprecatedHTTPPort: bad}
+			err := cfg.handleDeprecatedFlags()
+			if err == nil {
+				t.Errorf("expected error for port %q, got nil", bad)
+			}
+		}
+	})
+
 	t.Run("no deprecated port is a no-op", func(t *testing.T) {
 		cfg := &Config{
 			Secure:  true,
