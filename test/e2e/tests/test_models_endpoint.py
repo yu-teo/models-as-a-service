@@ -384,40 +384,24 @@ class TestModelsEndpoint:
 
             # Test: GET /v1/models WITH x-maas-subscription header using K8s token
             # Expected: Returns models from simulator-subscription only
-            # Poll until models appear — gateway policy and subscription metadata
-            # propagation can lag behind CR readiness.
             log.info("Testing: GET /v1/models with K8s token and explicit subscription header: simulator-subscription")
             url = f"{_maas_api_url()}/v1/models"
-            request_headers = {
-                "Authorization": f"Bearer {sa_token}",  # K8s token, not API key
-                "x-maas-subscription": SIMULATOR_SUBSCRIPTION,
-            }
-            deadline = time.time() + 120
-            r = None
-            models = []
-            while time.time() < deadline:
-                r = _request_with_gateway_retry(
-                    requests.get,
-                    url,
-                    headers=request_headers,
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    models = data.get("data") or []
-                    if len(models) > 0:
-                        break
-                    log.info(f"Models not yet propagated, got {len(models)} entries")
-                else:
-                    log.info(f"Waiting for /v1/models HTTP 200; got {r.status_code}")
-                time.sleep(5)
+            r = _request_with_gateway_retry(
+                requests.get,
+                url,
+                headers={
+                    "Authorization": f"Bearer {sa_token}",  # K8s token, not API key
+                    "x-maas-subscription": SIMULATOR_SUBSCRIPTION,
+                },
+            )
 
-            assert r is not None, "Expected /v1/models response, got none"
             assert r.status_code == 200, f"Expected 200 with explicit subscription header, got {r.status_code}: {r.text}"
 
             # Validate response structure
             data = r.json()
             assert data.get("object") == "list", f"Expected object='list', got {data.get('object')}"
             assert "data" in data, "Response missing 'data' field"
+            models = data.get("data", []) if data.get("data") is not None else []
 
             # Should have at least one model from simulator-subscription
             assert len(models) > 0, f"Expected at least one model in response, got {len(models)}. Data was: {data.get('data')}"
