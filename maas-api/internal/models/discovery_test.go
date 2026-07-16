@@ -126,6 +126,26 @@ func TestBuildClusterTLSConfigFromPath(t *testing.T) {
 		assert.Equal(t, uint16(tls.VersionTLS12), tlsConfig.MinVersion)
 		assert.NotNil(t, tlsConfig.RootCAs)
 	})
+
+	t.Run("sets NextProtos when HTTP/2 is enabled", func(t *testing.T) {
+		log := logger.New(true)
+
+		tlsConfig, err := models.BuildClusterTLSConfigFromPath(log, "/nonexistent/ca.crt", true)
+		require.NoError(t, err)
+		require.NotNil(t, tlsConfig)
+
+		assert.Equal(t, []string{"h2", "http/1.1"}, tlsConfig.NextProtos)
+	})
+
+	t.Run("does not set NextProtos when HTTP/2 is disabled", func(t *testing.T) {
+		log := logger.New(true)
+
+		tlsConfig, err := models.BuildClusterTLSConfigFromPath(log, "/nonexistent/ca.crt", false)
+		require.NoError(t, err)
+		require.NotNil(t, tlsConfig)
+
+		assert.Nil(t, tlsConfig.NextProtos)
+	})
 }
 
 // selfSignedCertPEM generates a minimal self-signed CA certificate in PEM format for use in tests.
