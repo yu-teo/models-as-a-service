@@ -7,7 +7,7 @@
 # Environment variables:
 #   OPERATOR_CATALOG - Custom catalog image (optional). When unset, uses community-operators.
 #                      Set to e.g. quay.io/opendatahub/opendatahub-operator-catalog:latest for custom builds.
-#   OPERATOR_CHANNEL   - Subscription channel (default: fast-3)
+#   OPERATOR_CHANNEL   - Subscription channel (default: fast-3; fast when OPERATOR_CATALOG is set)
 #   OPERATOR_STARTING_CSV - Pin Subscription startingCSV (optional). When unset,
 #                           follow the channel head (latest in fast-3 by default).
 #   OPERATOR_INSTALL_PLAN_APPROVAL - Manual (default) or Automatic; use "-" to omit.
@@ -118,7 +118,7 @@ if [[ -n "$OPERATOR_CATALOG" ]]; then
   echo "   Using custom catalog: $OPERATOR_CATALOG"
   create_custom_catalogsource "odh-custom-catalog" "openshift-marketplace" "$OPERATOR_CATALOG"
   catalog_source="odh-custom-catalog"
-  channel="${OPERATOR_CHANNEL:-fast-3}"
+  channel="${OPERATOR_CHANNEL:-fast}"
 else
   echo "   Using community-operators"
   catalog_source="community-operators"

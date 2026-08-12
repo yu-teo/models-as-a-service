@@ -245,7 +245,7 @@ ADVANCED OPTIONS (PR Testing):
 
   --channel <channel>
       Operator channel override
-      Default: fast-3 (ODH), stable-3.x (RHOAI)
+      Default: fast-3 (ODH community), fast (ODH custom catalog), stable-3.x (RHOAI)
 
   --external-oidc
       Enable external OIDC on the maas-api AuthPolicy.
@@ -1276,7 +1276,7 @@ install_primary_operator() {
         log_info "Using custom ODH catalog: $OPERATOR_CATALOG"
         create_custom_catalogsource "odh-custom-catalog" "openshift-marketplace" "$OPERATOR_CATALOG"
         catalog_source="odh-custom-catalog"
-        channel="${OPERATOR_CHANNEL:-fast-3}"
+        channel="${OPERATOR_CHANNEL:-fast}"
       else
         catalog_source="community-operators"
         channel="${OPERATOR_CHANNEL:-fast-3}"
