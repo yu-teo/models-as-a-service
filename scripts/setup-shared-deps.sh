@@ -226,6 +226,9 @@ setup_policy_engine_helm_sets() {
 
       log_info "Creating upstream Kuadrant v1.4.2 CatalogSource..."
       kubectl create namespace "$kuadrant_ns" 2>/dev/null || true
+      # Label the namespace so Helm can adopt it as part of its release
+      kubectl label namespace "$kuadrant_ns" app.kubernetes.io/managed-by=Helm --overwrite
+      kubectl annotate namespace "$kuadrant_ns" meta.helm.sh/release-name="$HELM_RELEASE_NAME" meta.helm.sh/release-namespace="$HELM_NAMESPACE" --overwrite
 
       cat <<EOF | kubectl apply -f -
 apiVersion: operators.coreos.com/v1alpha1
