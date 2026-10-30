@@ -29,7 +29,7 @@ ensure_helm() {
     return 1
   fi
   install -m 0755 "$tmp_dir/${os}-${arch}/helm" /usr/local/bin/helm 2>/dev/null \
-    || install -m 0755 "$tmp_dir/${os}-${arch}/helm" "${SCRIPT_DIR}/../bin/helm"
+    || { mkdir -p "${SCRIPT_DIR}/../bin" && install -m 0755 "$tmp_dir/${os}-${arch}/helm" "${SCRIPT_DIR}/../bin/helm"; }
   rm -rf "$tmp_dir"
 
   export PATH="${SCRIPT_DIR}/../bin:${PATH}"
